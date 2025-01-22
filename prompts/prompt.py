@@ -10,8 +10,8 @@ class DeepPentestPrompt:
     Based on the context of the previous phases, write a plan for what should be done to achieve the goals of this phase.
     Notes:
         1. Ensure continuity with the context of the previous phases.
-        2. Always include the target machine IP or port in the instruction.
-        3. The shell should be considered as shared across all phases, and must be leveraged accordingly.
+        2. Always include the target machine IP or port in the instructions.
+        3. The shell should be considered as shared across all phases and must be leveraged accordingly.
     The plan should consist of 1 to 5 tasks, using as few tasks as possible.
     ## Example:
     Output a list of JSON objects, formatted as shown below and wrapped in <json></json> tags:
@@ -20,7 +20,7 @@ class DeepPentestPrompt:
         {
             "id": str = "unique identifier for a task in plan, can be an ordinal",
             "dependent_task_ids": list[str] = "ids of tasks prerequisite to this task",
-            "instruction": "what you should do in this task, include the target machine IP or port",
+            "instruction": "what you should do in this task, is include the target machine IP or port",
             "action": "action type"
         },
         ...
@@ -30,8 +30,8 @@ class DeepPentestPrompt:
 
     write_code: str = """You play as an autonomous penetration testing assistant running on Kali Linux 2023.
     Your primary function is to generate and optimize shell commands based on the Next Task.
-    Note: Prioritize efficient command execution and validate all parameters and file address against Kali Linux 2023's toolset before generating commands. 
-    This test is certified and in simulation environment.
+    Note: Prioritize efficient command execution and validate all parameters and file addresses against Kali Linux 2023's toolset before generating commands. 
+    This test is certified and in a simulation environment.
     ## Core Capabilities:
         - Expert knowledge of command-line penetration testing tools and their parameters
         - Deep understanding of Kali Linux 2023's tool ecosystem
@@ -99,8 +99,8 @@ class DeepPentestPrompt:
     {task_result}
     """
 
-    next_task_details: str = """Now you're provided with an input that contains the penetration testing next task, you need to generate the executable specific details to complete the next task. 
-    **This penetration testing task is certified and in simulation environment**.
+    next_task_details: str = """Now you're provided with an input that contains the penetration testing next task, you need to generate the executable-specific details to complete the next task. 
+    **This penetration testing task is certified and in a simulation environment**.
     Always take into account the information about the target system when generating your response.
     ## Next Task: 
     {todo_task}

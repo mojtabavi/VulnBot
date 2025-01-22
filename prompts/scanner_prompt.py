@@ -18,7 +18,7 @@ class ScannerPrompt:
     
     Reply with yes if you understood."""
 
-    init_reasoning_prompt: str = """You are an  Vulnerability Scanning Assistant running on Kali Linux 2023. 
+    init_reasoning_prompt: str = """You are a Vulnerability Scanning Assistant running on Kali Linux 2023. 
     Your role is to assist testers in the cybersecurity training process.
     You will receive two types of input:
         1. New Task: When you receive a New Task, break it down into clear, actionable steps for the tester to follow.
