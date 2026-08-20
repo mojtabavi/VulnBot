@@ -1,0 +1,33 @@
+# Basic Configuration (basic_config.yaml)
+# Copy to PENTEST_ROOT/basic_config.yaml (project root) before running.
+# `python cli.py init` also auto-generates a live version of this file.
+
+log_verbose: true
+
+# RAG off by default. Set true only after Milvus + a knowledge base are configured.
+enable_rag: false
+
+# Execution mode: auto | manual | semi
+#   auto  - agent runs generated shell commands on the Kali host over SSH
+#   manual- you paste command output by hand (no auto execution)
+#   semi  - shell auto-run, non-shell actions manual
+mode: auto
+
+http_default_timeout: 300
+
+# Kali Linux host that actually executes the pentest tooling (reached over SSH).
+kali:
+  hostname: 10.10.0.5
+  port: 22
+  username: root
+  password: root
+
+# API + WebUI bind hosts (RAG service)
+api_server:
+  host: 127.0.0.1
+  port: 7861
+  public_host: 127.0.0.1
+  public_port: 7861
+webui_server:
+  host: 127.0.0.1
+  port: 8501

@@ -26,6 +26,14 @@ VulnBot is an advanced automated penetration testing framework that utilizes Lar
 
 *This RAG implementation is based on [Langchain-Chatchat](https://github.com/chatchat-space/Langchain-Chatchat). Special thanks to the authors.*
 
+### Architecture (this fork)
+
+Current module layout and data flow. Gray = current modules; orange = future belief-state
+attachment points (placeholders only). Full write-up in [`ARCHITECTURE.md`](ARCHITECTURE.md);
+editable source in [`project_schematic.excalidraw`](project_schematic.excalidraw).
+
+![VulnBot current architecture & data flow](docs/project_schematic.png)
+
 ---
 
 ## Quick Start

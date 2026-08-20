@@ -15,3 +15,17 @@ __pycache__/
 
 data/
 logs/
+# AI assistant files
+CLAUDE.md
+GEMINI.md
+AGENTS.md
+.claude/
+.cursor/
+.cursorrules
+.codex/
+.gemini/
+.github/copilot-instructions.md
+
+# Python virtualenv
+.venv/
+venv/

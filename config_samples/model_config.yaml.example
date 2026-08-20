@@ -1,0 +1,23 @@
+# LLM Configuration (model_config.yaml)
+# THIS is where the LLM is swapped.
+#   llm_model: openai | ollama   (selects the client in server/chat/chat.py)
+#   base_url + api_key + llm_model_name point at the actual model endpoint.
+# For an OpenAI-compatible local server (vLLM, LM Studio, etc.) keep llm_model: openai
+# and set base_url to that server. For Ollama use llm_model: ollama.
+
+api_key: "sk-REPLACE_ME"
+llm_model: openai
+base_url: "http://127.0.0.1:11434/v1"
+llm_model_name: "deepseek-r1:7b"
+
+# Embedding / rerank (only used when enable_rag: true)
+embedding_models: "maidalun1020/bce-embedding-base_v1"
+embedding_type: local
+context_length: 120000
+embedding_url: ""
+rerank_model: "maidalun1020/bce-reranker-base_v1"
+
+temperature: 0.5
+history_len: 5
+timeout: 600
+proxies: {}
