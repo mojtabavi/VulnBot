@@ -1,0 +1,86 @@
+name: pentest-pomdp-lab
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+# labnet : isolated bridge, NO route to the public internet. kali + target + agent
+#          live here. The target/agent attack path is isolated by construction.
+# egress : normal bridge with outbound internet. ONLY the agent-api variant joins it,
+#          and only under the `api` profile (hosted LLM). target and kali never do.
+networks:
+  labnet:
+    driver: bridge
+    internal: true
+  egress:
+    driver: bridge
+
+# ── Shared agent definition (DRY via YAML anchor) ─────────────────────────────
+# Two runtime variants extend this: agent-local (no egress) and agent-api (egress).
+# Only one runs at a time, selected by compose profile, so both keep container_name
+# "agent" and the same mounted repo/keys.
+x-agent-base: &agent-base
+  build: ./docker/agent
+  image: pentest-pomdp-agent
+  container_name: agent
+  hostname: agent
+  env_file: .env
+  volumes:
+    - ./:/app                                                   # VulnBot + belief repo
+    - ./docker/agent/keys/agent_ed25519:/root/.ssh/id_ed25519:ro  # agent SSH private key
+  working_dir: /app
+  command: sleep infinity          # keep alive; run the agent manually during dev
+  restart: unless-stopped
+
+services:
+  kali-tools:
+    build: ./docker/kali
+    container_name: kali-tools
+    hostname: kali-tools
+    env_file: .env
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW                     # nmap SYN scans / raw sockets
+    networks: [labnet]
+    restart: unless-stopped
+
+  target:
+    # Example vulnerable target — swap for a Metasploitable/VulnHub/Vulhub image.
+    image: tleemcjr/metasploitable2
+    container_name: target
+    hostname: target
+    networks: [labnet]              # target has NO internet by design
+    restart: unless-stopped
+
+  # Local LLM served on the RTX 5080 (profile: local). Lives on labnet only — no egress.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    hostname: ollama
+    profiles: [local]
+    networks: [labnet]
+    volumes:
+      - ollama_models:/root/.ollama
+    # GPU passthrough (needs nvidia-container-toolkit on the host):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    restart: unless-stopped
+
+  # Agent, LOCAL-model variant: labnet only, strictly NO egress.
+  agent-local:
+    <<: *agent-base
+    profiles: [local]
+    depends_on: [kali-tools, target, ollama]
+    networks: [labnet]
+
+  # Agent, hosted-API variant: labnet + egress (agent is the ONLY service with egress).
+  agent-api:
+    <<: *agent-base
+    profiles: [api]
+    depends_on: [kali-tools, target]
+    networks: [labnet, egress]
+
+volumes:
+  ollama_models:

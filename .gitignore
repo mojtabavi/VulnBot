@@ -29,3 +29,12 @@ AGENTS.md
 # Python virtualenv
 .venv/
 venv/
+
+# Progress tracking (local only)
+ROADMAP.md
+PLAN.md
+TODO.md
+
+# Lab secrets
+.env
+docker/agent/keys/
