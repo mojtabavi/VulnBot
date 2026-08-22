@@ -320,15 +320,30 @@ def update_belief(
     return b
 
 
-def score_action(action: Action, belief: Dict[str, Any]) -> float:
-    """Reward R(action | belief) = goal value − cost − detection risk.
+# Interim value when an action carries no priors-supplied value (keeps the 2.4 policy
+# behavior continuous once score_action is live).
+DEFAULT_VALUE: float = 1.0
 
-    CONTRACT (implement in Phase 2.5): combine `action.value` (weighted by the
-    belief that it will succeed — e.g. P(target vuln present)), minus `action.cost`,
-    minus a detection term driven by the target host's `honeypot_likelihood` and
-    `action.detection_risk`. Return a scalar; higher is better.
+
+def score_action(action: Action, belief: Dict[str, Any]) -> float:
+    """Reward R(action | belief) = P(succeeds | b)·value − cost − detection.
+
+    `value`/`cost`/`detection_risk` are populated from the priors source (`pomdp.priors`,
+    Phase 2.5) from CVSS + exploit-maturity signals; here R just combines them with the
+    belief. For exploit/lateral/privesc the success weight is the belief the target vuln is
+    present (`P(present)`); recon "succeeds" (always yields an observation). Detection is
+    driven by the target host's `honeypot_likelihood` plus the action's own
+    `detection_risk`, so a honeypot-suspected host is penalized. Never reads the hidden S.
     """
-    raise NotImplementedError("score_action: implement R = value − cost − detection risk (Phase 2.5).")
+    host, factor, key, hyps = _target_factor(action, belief)
+    dist = _peek_dist(belief, host, factor, key, hyps)
+    hostb = belief.get("hosts", {}).get(host, {})
+    honeypot = float(hostb.get("honeypot_likelihood", 0.0))
+    detection = honeypot + float(action.detection_risk)
+
+    value = action.value if action.value else DEFAULT_VALUE
+    p_success = 1.0 if action.type == ActionType.RECON else float(dist.get("present", 0.5))
+    return p_success * value - float(action.cost) - detection
 
 
 # Policy weights (π). Recon is rewarded for the uncertainty it can resolve;

@@ -79,7 +79,13 @@ class Role(BaseModel):
             t = ActionType.EXPLOIT
         else:
             t = ActionType.RECON
-        return Action(name=(instr[:60] or self.name), type=t, host=None, params={})
+        action = Action(name=(instr[:60] or self.name), type=t, host=None, params={})
+        try:  # Phase 2.5: fill value/cost/detection_risk from CVE/ExploitDB priors (best-effort)
+            from pomdp.priors import enrich_action
+            action = enrich_action(action)
+        except Exception as e:  # noqa: BLE001 - priors are advisory, never fatal
+            logger.warning(f"priors enrichment skipped: {e}")
+        return action
 
     def _task_to_action(self):
         """Map the current PTG task to a POMDP Action."""

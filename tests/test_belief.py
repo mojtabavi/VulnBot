@@ -11,7 +11,11 @@ needed. Only the direction/order of the likelihoods matters, not the decimals.
 import json
 
 from pomdp.belief_state import (
-    new_belief, Action, ActionType, update_belief, choose_action, EPS, OS_CLASSES,
+    new_belief, Action, ActionType, update_belief, choose_action, score_action,
+    EPS, OS_CLASSES,
+)
+from pomdp.priors import (
+    enrich_action, reward_params, vuln_prior_present, seed_vuln_priors,
 )
 
 
@@ -151,3 +155,44 @@ def test_choose_action_does_not_mutate_belief():
     snapshot = json.dumps(b, sort_keys=True)
     _ = choose_action([_recon_probe_action(), _exploit_action()], b)
     assert json.dumps(b, sort_keys=True) == snapshot, "choose_action must not mutate the belief"
+
+
+# ── 6. reward R (score_action) + priors source (Phase 2.5) ───────────────────
+def test_priors_ordering_from_cvss_and_maturity():
+    # a high-CVSS weaponized vuln → higher b0 prior, higher value, lower cost than an
+    # immature low-CVSS one (only the ORDER must be right, not the decimals).
+    assert vuln_prior_present(9.8, "weaponized") > vuln_prior_present(4.0, "unproven")
+    hi = reward_params(9.8, "weaponized")
+    lo = reward_params(4.0, "unproven")
+    assert hi["value"] > lo["value"], "weaponized high-CVSS is worth more"
+    assert hi["cost"] < lo["cost"], "immature exploit costs more to land"
+    # priors stay in sane ranges
+    assert 0.05 <= vuln_prior_present(9.8, "weaponized") <= 0.95
+
+
+def test_enrich_action_fills_reward_fields_without_mutating():
+    a = Action(name="exploit CVE-2011-2523", type=ActionType.EXPLOIT, host="h",
+               params={"factor": "vulns", "key": "CVE-2011-2523"})
+    ea = enrich_action(a)
+    assert ea.value > 0 and ea.cost > 0 and ea.detection_risk > 0, "priors populate R inputs"
+    assert (a.value, a.cost, a.detection_risk) == (0.0, 0.0, 0.0), "input action not mutated"
+    seeds = seed_vuln_priors(["CVE-2011-2523", "CVE-does-not-exist"])
+    assert 0.05 <= seeds["CVE-2011-2523"] <= 0.95 and "CVE-does-not-exist" not in seeds
+
+
+def test_score_action_penalizes_detection_risk():
+    # DoD: detection risk influences the choice. Same vuln belief on two hosts; one is a
+    # likely honeypot → its exploit scores lower and is NOT chosen.
+    b = new_belief("t", hosts=["clean", "pot"])
+    for h in ("clean", "pot"):
+        b["hosts"][h]["vulns"]["CVE-X"] = {"present": 0.9, "absent": 0.1}
+    b["hosts"]["clean"]["honeypot_likelihood"] = 0.05
+    b["hosts"]["pot"]["honeypot_likelihood"] = 0.80
+
+    def _exp(host):
+        return Action(name="exploit CVE-X", type=ActionType.EXPLOIT, host=host, value=0.9,
+                      params={"factor": "vulns", "key": "CVE-X"})
+
+    assert score_action(_exp("pot"), b) < score_action(_exp("clean"), b), "honeypot penalizes R"
+    chosen = choose_action([_exp("pot"), _exp("clean")], b)
+    assert chosen.host == "clean", "policy avoids the honeypot-suspected host"
