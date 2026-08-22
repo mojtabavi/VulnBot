@@ -57,19 +57,48 @@ class Role(BaseModel):
         except Exception as e:  # noqa: BLE001 - belief is auxiliary, never fatal
             logger.warning(f"belief init skipped: {e}")
 
-    def _belief_persist(self):
+    def _belief_llm(self, prompt):
+        """Thin str->str wrapper over the project LLM choke point, for Z likelihoods."""
+        try:
+            resp = _chat(query=prompt, summary=False)
+            return resp[0] if isinstance(resp, tuple) else resp
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"belief llm call failed: {e}")
+            return ""
+
+    def _task_to_action(self):
+        """Map the current PTG task to a POMDP Action (type inferred from its text)."""
+        from belief_state import Action, ActionType
+        task = getattr(self.planner.current_plan, "current_task", None)
+        instr = (getattr(task, "instruction", "") or "")
+        low = instr.lower()
+        if any(k in low for k in ("privesc", "privilege", "sudo", "suid", "escalat")):
+            t = ActionType.PRIVESC
+        elif any(k in low for k in ("lateral", "pivot", "pass-the-hash")):
+            t = ActionType.LATERAL
+        elif any(k in low for k in ("exploit", "metasploit", " msf", "payload", "reverse shell", "cve")):
+            t = ActionType.EXPLOIT
+        else:
+            t = ActionType.RECON
+        return Action(name=(instr[:60] or self.name), type=t, host=None, params={})
+
+    def _belief_persist(self, observation=""):
+        """Belief Updater hook: run the observation O through the soft Bayesian update."""
         try:
             from belief_store import BeliefStore
+            from belief_state import update_belief
             run_id = self._belief_run_id()
             if not run_id:
                 return
             store = BeliefStore()
             b = store.load_latest(run_id)
-            if b is not None:
-                b["step"] = int(b.get("step", 0)) + 1
-                # Phase 2.2 will replace this bump with update_belief(b, action, O).
-                store.save(b)
-        except Exception as e:  # noqa: BLE001
+            if b is None:
+                return
+            action = self._task_to_action()
+            b = update_belief(b, action, observation, llm=self._belief_llm, samples=1)
+            store.save(b)
+            logger.info(f"belief updated -> step {b.get('step')}")
+        except Exception as e:  # noqa: BLE001 - belief is auxiliary, never fatal
             logger.warning(f"belief persist skipped: {e}")
 
     def _react(self, next_task):
@@ -81,7 +110,7 @@ class Role(BaseModel):
             logger.info(result.response)
             self.console.print("---------- Execute Result End ---------", style="bold green")
             self.planner.current_plan.current_task.code = result.context["code"]
-            self._belief_persist()   # Phase 2.1: persist belief b each react step
+            self._belief_persist(result.response)   # Phase 2.2: update belief b from observation O
             if len(result.response) >= 8192:
                 response, _ = _chat(query=DeepPentestPrompt.summary_result + str(result.response), summary=False)
 

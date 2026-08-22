@@ -10,6 +10,15 @@ logger = build_logger()
 
 
 class PlannerSummary(BaseModel):
+    """Summarizer → Belief Updater attach point (POMDP).
+
+    `get_summary` condenses finished prior-phase tasks into the next phase's context
+    (unchanged). The per-observation Belief Updater — the soft Bayesian update of the
+    factored belief b from each raw tool output O — is wired in the react loop at
+    `roles/role.py::Role._belief_persist`, which calls
+    `belief_state.py::update_belief(b, action, O, llm=...)`. Kept there because that is
+    where O is produced each step; this summary remains the cross-phase context signal.
+    """
     history_planner_ids: List[str] = Field(default_factory=list)
 
     def get_summary(self):

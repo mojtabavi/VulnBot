@@ -289,28 +289,69 @@ endpoint, and a Kali host; fill `model_config.yaml` + `db_config.yaml` +
 
 ---
 
+## 7A. Dockerized lab (Phase 0 — this fork)
+
+The lab runs in `docker compose` on an **isolated** network; the agent reaches a
+containerized Kali tooling host instead of a host-local machine. Authoritative doc:
+[`INFRA.md`](INFRA.md).
+
+- **Services:** `kali-tools` (Kali + `kali-linux-headless`; exposes **SSH** and
+  **msfrpcd:55553**), `target` (deliberately vulnerable), `ollama` (local LLM), and two agent
+  variants — `agent-local` (labnet only) / `agent-api` (labnet + egress) — chosen by compose
+  **profile** (`local`/`api`).
+- **Isolation:** `labnet` is `internal: true` (no internet). Egress is attached to `agent-api`
+  only; in the `local` profile nothing has egress. Target + kali never reach the internet.
+- **Agent→kali channels:** **SSH** for arbitrary tools (nmap/enumeration/custom; raw stdout is
+  the observation **O**); **msfrpc** via `pymetasploit3` for Metasploit modules. Rule + check:
+  `docker/agent/smoke_channels.py`.
+- **Lifecycle:** `lab.ps1` (Windows) / `make` (Linux/CI) — `up`/`dev-up`/`down`/`shell-*`/`smoke`.
+- Secrets in `.env`; Kali apt mirror pinned via `KALI_MIRROR_HOST` (default mirror 403s in some
+  regions).
+
+## 7B. Belief layer (Phase 2.1–2.2 — this fork)
+
+The POMDP belief-state (observation model implemented in 2.2; reward/policy still stubbed; see §8):
+
+- **`belief_state.py`** — the factored-JSON belief `b` over hidden state S (per host: `os`,
+  `services`, `vulns`, `access`, `honeypot_likelihood`). `new_belief`/`new_host_prior`/
+  `add_host` build conventional b0 priors (uniform OS with mass on `unknown`); `Action` +
+  `GAMMA` defined. **`update_belief` (2.2)** is implemented — LLM-likelihood (Z) soft Bayesian
+  update via `Z_PROMPT_TEMPLATE`, code-normalized, ε-floored (soft). `score_action` (R),
+  `choose_action` (π), `run_agent` remain **`NotImplementedError`** (2.4–2.5) or replaced by the
+  author's file with the same names. **Never branches on S.**
+- **`belief_store.py`** — stdlib-only per-run JSON **Belief Store** under
+  `data/beliefs/<run_id>/` (`save`/`load_latest`/`load_step`/`steps`/`history`); one file per
+  step forms the belief trace.
+- **`roles/role.py`** — guarded, best-effort hooks: `_belief_init` (in `_plan`) instantiates b;
+  `_belief_persist` (in `_react`) saves it each step, keyed by plan id. A belief failure never
+  breaks a run.
+
+---
+
 ## 8. Integration Points
 
-> These are **attachment locations only** for the three future belief-state modules.
-> Nothing below is implemented in this phase.
+> Attachment locations for the three belief-state modules. **Belief Store is implemented
+> (Phase 2.1)**; Updater and Planner are future work (their belief math is stubbed in
+> `belief_state.py`).
 
-### 8.1 Summarizer → **Belief Updater**
-- **Where:** `actions/plan_summary.py::PlannerSummary.get_summary()` and the long-output
-  summarization branch in `roles/role.py::Role._react` (the `summary_result` path), plus
-  the `check_success` judgment in `actions/planner.py::Planner.update_plan`.
-- **Why here:** this is exactly where raw tool output (the *observation*) is consumed and
-  condensed. A Belief Updater would sit at this junction, using the LLM as an observation
-  model to perform a Bayesian update of the factored belief after each task result.
+### 8.1 Summarizer → **Belief Updater**  *(DONE — Phase 2.2)*
+- **Where:** `roles/role.py::Role._belief_persist` (called from `_react` with the observation O)
+  → `belief_state.py::update_belief`. `actions/plan_summary.py::PlannerSummary` documents the
+  attach point and stays the cross-phase context signal.
+- **How:** the LLM is the observation model — a `Z_PROMPT` asks for per-hypothesis LIKELIHOODS
+  `P(O | h)` only; the CODE does the Bayesian normalization (posterior ∝ prior × Z). Z is floored
+  at ε so the update is **soft** (a failed exploit moves 0.70 → ~0.57, never → 0). `samples > 1`
+  averages several LLM calls (self-consistency). Formal partial-observability tests land in 2.3.
 
-### 8.2 Memory → **Belief Store**
-- **Where:** the RAG/Memory-Retriever path in `server/chat/chat.py::_chat` (the
-  `search_docs` + rerank block) and the `rag/` + `db/` persistence layers.
-- **Why here:** the Memory-Retriever already assembles external context that is injected
-  into prompts. The Belief Store (a factored JSON belief over hidden network state) would
-  be a sibling store, persisted like the other `db/` entities and read into the prompt
-  context the same way Memory is.
+### 8.2 Memory → **Belief Store**  *(DONE — Phase 2.1)*
+- **Where:** `belief_store.py` (per-run JSON store) + the guarded hooks in `roles/role.py`
+  (`_belief_init`, `_belief_persist`). Sibling to the RAG/Memory-Retriever path in
+  `server/chat/chat.py::_chat` and the `db/` persistence layer.
+- **Status:** implemented as an inspectable factored-JSON store under `data/beliefs/`, keyed by
+  plan id, one snapshot per step (the belief trace). The belief *content* it stores comes from
+  `belief_state.py`; the update that changes that content lands in 2.2.
 
-### 8.3 Planner → **Belief-Conditioned Planner**
+### 8.3 Planner → **Belief-Conditioned Planner**  *(future — Phase 2.4)*
 - **Where:** `actions/planner.py::Planner.plan` / `update_plan` / `next_task_details` and
   the task ordering in `actions/write_plan.py` (`merge_tasks` / PTG topological order in
   `db/models/plan_model.py`).

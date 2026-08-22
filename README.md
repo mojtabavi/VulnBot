@@ -34,6 +34,25 @@ editable source in [`project_schematic.excalidraw`](project_schematic.excalidraw
 
 ![VulnBot current architecture & data flow](docs/project_schematic.png)
 
+### Dockerized lab (this fork)
+
+This fork runs the whole lab in `docker compose` on an **isolated** network (no internet on
+the attack path). See [`INFRA.md`](INFRA.md) for details.
+
+```powershell
+cp .env.example .env         # fill MSF_RPC_PASSWORD, AGENT_SSH_PUBKEY, LLM backend/keys
+./lab.ps1 dev-up             # start kali-tools + target + agent (Windows; or `make dev-up`)
+./lab.ps1 smoke              # verify agent->kali channels (SSH nmap + msfrpc modules)
+./lab.ps1 down
+```
+
+- **kali-tools** exposes SSH (arbitrary tools) and `msfrpcd:55553` (Metasploit RPC);
+  **target** is a deliberately vulnerable image; **agent** is the VulnBot + belief app.
+- LLM backend is switchable via `.env` `LLM_BACKEND=local|api` (compose profiles).
+
+The explicit-belief-state work and its belief scaffold (`belief_state.py`, `belief_store.py`)
+are described in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
 ---
 
 ## Quick Start

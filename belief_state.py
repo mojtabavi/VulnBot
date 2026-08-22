@@ -37,17 +37,23 @@ Belief factoring (per host), all values are probabilities in [0, 1]:
 from __future__ import annotations
 
 import copy
+import json
+import re
 from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 __all__ = [
     "GAMMA", "OS_CLASSES", "ACCESS_LEVELS", "ActionType", "Action",
-    "new_host_prior", "new_belief",
-    "update_belief", "score_action", "choose_action", "run_agent",
+    "new_host_prior", "new_belief", "add_host",
+    "Z_PROMPT_TEMPLATE", "update_belief", "score_action", "choose_action", "run_agent",
 ]
 
 # Discount factor γ for the (belief) MDP. Conventional default; author may tune.
 GAMMA: float = 0.95
+
+# Likelihood floor: keeps the update SOFT — a failed observation moves mass but never
+# collapses a hypothesis to 0 (e.g. a failed exploit 0.70 -> ~0.50, not -> 0).
+EPS: float = 1e-3
 
 # OS hypothesis classes. "unknown" carries the "I don't know" mass in the b0 prior.
 OS_CLASSES: tuple[str, ...] = ("linux", "windows", "other", "unknown")
@@ -150,31 +156,167 @@ def add_host(belief: Dict[str, Any], host: str,
 
 
 # ── Belief update (Z + Bayes), reward (R), policy (π) — AUTHOR FILLS ─────────
+# ── Observation model Z: the LLM supplies per-hypothesis LIKELIHOODS ─────────
+# This is the thesis's answer to Sarraute (2013) / CHECKMATE: the "unobtainable"
+# observation-probability tables are supplied by a learned estimator (the LLM). The
+# prompt asks for LIKELIHOODS only — P(observation | hypothesis) — and the CODE does the
+# Bayesian normalization. Only the DIRECTION/ORDER of the likelihoods must be right.
+Z_PROMPT_TEMPLATE = """You are the OBSERVATION MODEL of a penetration-testing agent.
+Estimate the LIKELIHOOD of the observed tool output UNDER each hypothesis about the host's
+hidden state — that is P(observation | hypothesis), for each hypothesis independently.
+
+STRICT RULES:
+- Output a likelihood in [0,1] for every hypothesis. A likelihood is "how expected is this
+  observation IF the hypothesis were true" — NOT the probability the hypothesis is true.
+- Do NOT normalize; the likelihoods need not sum to 1.
+- Do NOT output a posterior, a ranking, or any explanation.
+- Keep the RELATIVE ORDER meaningful. For example a FAILED exploit is more expected if the
+  vulnerability is ABSENT than if it is PRESENT — but never impossible, so never use exactly
+  0 or 1.
+
+Action: {action}
+Factor under test: {factor}{key} on host {host}
+Hypotheses: {hypotheses}
+Observation (raw tool output O):
+\"\"\"
+{observation}
+\"\"\"
+
+Return ONLY a JSON object mapping each hypothesis to its likelihood, for example:
+{example}"""
+
+
+def _default_dist(hyps: Sequence[str]) -> Dict[str, float]:
+    """Uniform prior over `hyps` (used when a factor is seen for the first time)."""
+    n = len(hyps)
+    return {h: 1.0 / n for h in hyps}
+
+
+def _target_factor(action: Action, belief: Dict[str, Any]) -> Tuple[str, str, Optional[str], List[str]]:
+    """Decide which belief factor this action+observation bears on.
+
+    Returns (host, factor, key, hypotheses). `key` is None for the per-host `os` factor.
+    Precedence: explicit action.params {factor,key} → exploit/lateral/privesc target a
+    vuln (present/absent) → recon targets a probed service (present/absent) if given, else
+    the host OS distribution.
+    """
+    host = action.host or (next(iter(belief.get("hosts", {})), None)) or "unknown"
+
+    f = action.params.get("factor")
+    k = action.params.get("key")
+    if f == "os":
+        return host, "os", None, list(OS_CLASSES)
+    if f in ("services", "vulns") and k:
+        return host, f, k, ["present", "absent"]
+
+    if action.type in (ActionType.EXPLOIT, ActionType.LATERAL, ActionType.PRIVESC):
+        key = action.params.get("vuln") or f"{action.type}:{action.name}"
+        return host, "vulns", key, ["present", "absent"]
+
+    # recon / fallback
+    svc = action.params.get("service")
+    if svc:
+        return host, "services", svc, ["present", "absent"]
+    return host, "os", None, list(OS_CLASSES)
+
+
+def _get_dist(belief: Dict[str, Any], host: str, factor: str, key: Optional[str],
+              hyps: Sequence[str]) -> Dict[str, float]:
+    hostb = belief["hosts"][host]
+    if factor == "os":
+        return dict(hostb["os"])
+    table = hostb.setdefault(factor, {})
+    if key not in table:
+        table[key] = _default_dist(hyps)
+    return dict(table[key])
+
+
+def _set_dist(belief: Dict[str, Any], host: str, factor: str, key: Optional[str],
+              dist: Dict[str, float]) -> None:
+    hostb = belief["hosts"][host]
+    if factor == "os":
+        hostb["os"] = dist
+    else:
+        hostb.setdefault(factor, {})[key] = dist
+
+
+def _parse_likelihoods(text: str, hyps: Sequence[str]) -> Dict[str, float]:
+    """Extract {hypothesis: likelihood} from an LLM reply; robust to surrounding prose."""
+    obj: Dict[str, Any] = {}
+    for m in re.finditer(r"\{[^{}]*\}", text or "", re.DOTALL):
+        try:
+            cand = json.loads(m.group(0))
+            if isinstance(cand, dict):
+                obj = cand  # keep the last JSON object found
+        except json.JSONDecodeError:
+            continue
+    out: Dict[str, float] = {}
+    for h in hyps:
+        v = obj.get(h)
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            v = 0.5  # neutral when the model omits/garbles a hypothesis
+        out[h] = min(1.0, max(EPS, v))  # floor at EPS → soft update
+    return out
+
+
 def update_belief(
     belief: Dict[str, Any],
     action: Action,
     observation: str,
-    llm: Any = None,
+    llm: Optional[Callable[[str], str]] = None,
     samples: int = 1,
 ) -> Dict[str, Any]:
     """Soft Bayesian belief update from observation O of `action`.
 
-    CONTRACT (implement in Phase 2.2/2.3):
-      1. Identify the belief factors `action`+`observation` bear on (e.g. the vuln
-         targeted by an exploit, a service a scan probed, an OS a fingerprint saw).
-      2. For each hypothesis value h of that factor, obtain the LIKELIHOOD
-         Z = P(observation | h) FROM THE LLM (`llm`), not a hand-written table.
-         Optionally average `samples` LLM calls (self-consistency) to de-noise.
-      3. Posterior ∝ prior × Z; the CODE normalizes. This is a SOFT update:
-         a failed exploit must move e.g. 0.70 → ~0.50, NEVER → 0. Z must be
-         non-identity, and must satisfy  Z(fail|present) < Z(fail|absent).
-      4. Return a NEW belief dict with `step` incremented; do not mutate in place.
-
-    Must never read or branch on the hidden true state S.
+    Z (per-hypothesis likelihoods) comes from `llm` (a `str -> str` callable), never a
+    hand-written table; the CODE normalizes:  posterior ∝ prior × Z. Z is floored at EPS so
+    the update is SOFT (a failed exploit moves 0.70 → ~0.50, never → 0). With `samples > 1`
+    the likelihoods are averaged over several LLM calls (self-consistency) to reduce noise.
+    Returns a NEW belief with `step` incremented. Never reads the hidden true state S.
     """
-    raise NotImplementedError(
-        "update_belief: implement the LLM-likelihood soft Bayesian update (Phase 2.2/2.3)."
+    if llm is None:
+        raise ValueError("update_belief requires an `llm` callable (str -> str) to produce Z.")
+
+    b = copy.deepcopy(belief)
+    host, factor, key, hyps = _target_factor(action, b)
+    if host not in b["hosts"]:
+        b["hosts"][host] = new_host_prior(host)
+
+    prior = _get_dist(b, host, factor, key, hyps)
+
+    # Gather Z (optionally averaged over `samples` calls for self-consistency).
+    prompt = Z_PROMPT_TEMPLATE.format(
+        action=f"{action.type}:{action.name}" + (f" (tool={action.tool})" if action.tool else ""),
+        factor=factor,
+        key=f"[{key}]" if key else "",
+        host=host,
+        hypotheses=", ".join(hyps),
+        observation=(observation or "")[:4000],
+        example=json.dumps({h: 0.5 for h in hyps}),
     )
+    acc = {h: 0.0 for h in hyps}
+    n = max(1, int(samples))
+    for _ in range(n):
+        z = _parse_likelihoods(llm(prompt), hyps)
+        for h in hyps:
+            acc[h] += z[h]
+    z_avg = {h: acc[h] / n for h in hyps}
+
+    # Bayes: posterior ∝ prior × Z, then normalize.
+    unnorm = {h: max(prior.get(h, 1.0 / len(hyps)), 0.0) * max(z_avg[h], EPS) for h in hyps}
+    total = sum(unnorm.values()) or 1.0
+    posterior = {h: unnorm[h] / total for h in hyps}
+
+    _set_dist(b, host, factor, key, posterior)
+    b["step"] = int(b.get("step", 0)) + 1
+    b.setdefault("meta", {})["last_update"] = {
+        "step": b["step"], "host": host, "factor": factor, "key": key,
+        "action": f"{action.type}:{action.name}",
+        "z": z_avg, "prior": prior, "posterior": posterior,
+    }
+    return b
 
 
 def score_action(action: Action, belief: Dict[str, Any]) -> float:
