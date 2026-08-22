@@ -1,5 +1,15 @@
 FROM kalilinux/kali-rolling
 
+# Pin apt to a reachable Kali mirror. The default round-robin (http.kali.org /
+# kali.download) is Cloudflare-fronted and returns 403 from some regions/networks,
+# which breaks `apt-get update`. The base image defines its repo in the deb822 file
+# /etc/apt/sources.list.d/kali.sources; rewrite the URI in place (keeping the
+# Signed-By keyring). Swap the host for a closer one if needed
+# (see https://http.kali.org/README.mirrorlist).
+ARG KALI_MIRROR_HOST=kali.mirror.rafal.ca
+RUN sed -i "s#http://http.kali.org/kali/#http://${KALI_MIRROR_HOST}/kali/#" \
+      /etc/apt/sources.list.d/kali.sources
+
 # Kali containers are minimal. kali-linux-headless pulls the core toolset
 # (nmap, metasploit-framework, etc.). openssh-server + net utils added for the
 # agent->kali channel.
