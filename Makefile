@@ -2,7 +2,7 @@
 # PROFILE selects the LLM backend variant: local (RTX 5080, no egress) | api (hosted LLM).
 PROFILE ?= local
 
-.PHONY: help up down build shell-kali shell-agent logs test-channel config
+.PHONY: help up dev-up down build shell-kali shell-agent logs test-channel smoke config
 
 help:            ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -13,6 +13,9 @@ config:          ## validate the compose file for the selected PROFILE
 
 up:              ## build + start the lab (PROFILE=local|api)
 	docker compose --profile $(PROFILE) up -d --build
+
+dev-up:          ## fast dev bring-up: kali + target + agent only (no ollama)
+	docker compose --profile $(PROFILE) up -d --build --no-deps kali-tools target agent-local
 
 down:            ## stop and remove the lab (all profiles)
 	docker compose --profile local --profile api down
@@ -31,3 +34,6 @@ logs:            ## follow logs
 
 test-channel:    ## quick smoke test: agent scans target
 	docker exec agent bash -lc "nmap -Pn target || true"
+
+smoke:           ## run the agent->kali channel smoke test (SSH + msfrpc)
+	docker exec agent python /app/docker/agent/smoke_channels.py
