@@ -35,6 +35,43 @@ class Role(BaseModel):
         # To be implemented in each subclass
         pass
 
+    # ── Belief Store hooks (Phase 2.1) ────────────────────────────────────────
+    # Best-effort: a failure here must NEVER break a pentest run. The factored JSON
+    # belief b is keyed by the current plan id and persisted per step. The real
+    # Bayesian update (update_belief on observation O) is wired in Phase 2.2; for now
+    # these instantiate and persist b so the run emits a belief trace.
+    def _belief_run_id(self):
+        return getattr(self.planner.current_plan, "id", None)
+
+    def _belief_init(self, session):
+        try:
+            from belief_store import BeliefStore
+            from belief_state import new_belief
+            run_id = self._belief_run_id()
+            if not run_id:
+                return
+            store = BeliefStore()
+            if store.load_latest(run_id) is None:
+                store.save(new_belief(session_id=run_id))
+                logger.info(f"belief initialized for run {run_id}")
+        except Exception as e:  # noqa: BLE001 - belief is auxiliary, never fatal
+            logger.warning(f"belief init skipped: {e}")
+
+    def _belief_persist(self):
+        try:
+            from belief_store import BeliefStore
+            run_id = self._belief_run_id()
+            if not run_id:
+                return
+            store = BeliefStore()
+            b = store.load_latest(run_id)
+            if b is not None:
+                b["step"] = int(b.get("step", 0)) + 1
+                # Phase 2.2 will replace this bump with update_belief(b, action, O).
+                store.save(b)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"belief persist skipped: {e}")
+
     def _react(self, next_task):
         try:
             self.chat_counter += 1
@@ -44,6 +81,7 @@ class Role(BaseModel):
             logger.info(result.response)
             self.console.print("---------- Execute Result End ---------", style="bold green")
             self.planner.current_plan.current_task.code = result.context["code"]
+            self._belief_persist()   # Phase 2.1: persist belief b each react step
             if len(result.response) >= 8192:
                 response, _ = _chat(query=DeepPentestPrompt.summary_result + str(result.response), summary=False)
 
@@ -78,7 +116,7 @@ class Role(BaseModel):
             session.current_planner_id = plan.id
             self.planner = Planner(current_plan=plan, init_description=session.init_description)
 
-
+        self._belief_init(session)   # Phase 2.1: instantiate + persist belief b (keyed by plan id)
         return self.planner.plan()
 
     def run(self, session):
