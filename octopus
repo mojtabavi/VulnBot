@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# octopus — one-command launcher (Linux/macOS/Git-Bash). Ensures deps, then starts the Ink CLI.
+set -euo pipefail
+cd "$(dirname "$0")/cli"
+[ -d node_modules ] || { echo "installing octopus deps (first run)..."; npm install; }
+exec npm start

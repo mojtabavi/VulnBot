@@ -312,14 +312,14 @@ containerized Kali tooling host instead of a host-local machine. Authoritative d
 
 The POMDP belief-state (observation model implemented in 2.2; reward/policy still stubbed; see §8):
 
-- **`belief_state.py`** — the factored-JSON belief `b` over hidden state S (per host: `os`,
+- **`pomdp/belief_state.py`** — the factored-JSON belief `b` over hidden state S (per host: `os`,
   `services`, `vulns`, `access`, `honeypot_likelihood`). `new_belief`/`new_host_prior`/
   `add_host` build conventional b0 priors (uniform OS with mass on `unknown`); `Action` +
   `GAMMA` defined. **`update_belief` (2.2)** is implemented — LLM-likelihood (Z) soft Bayesian
   update via `Z_PROMPT_TEMPLATE`, code-normalized, ε-floored (soft). `score_action` (R),
   `choose_action` (π), `run_agent` remain **`NotImplementedError`** (2.4–2.5) or replaced by the
   author's file with the same names. **Never branches on S.**
-- **`belief_store.py`** — stdlib-only per-run JSON **Belief Store** under
+- **`pomdp/belief_store.py`** — stdlib-only per-run JSON **Belief Store** under
   `data/beliefs/<run_id>/` (`save`/`load_latest`/`load_step`/`steps`/`history`); one file per
   step forms the belief trace.
 - **`roles/role.py`** — guarded, best-effort hooks: `_belief_init` (in `_plan`) instantiates b;
@@ -332,11 +332,11 @@ The POMDP belief-state (observation model implemented in 2.2; reward/policy stil
 
 > Attachment locations for the three belief-state modules. **Belief Store is implemented
 > (Phase 2.1)**; Updater and Planner are future work (their belief math is stubbed in
-> `belief_state.py`).
+> `pomdp/belief_state.py`).
 
 ### 8.1 Summarizer → **Belief Updater**  *(DONE — Phase 2.2)*
 - **Where:** `roles/role.py::Role._belief_persist` (called from `_react` with the observation O)
-  → `belief_state.py::update_belief`. `actions/plan_summary.py::PlannerSummary` documents the
+  → `pomdp/belief_state.py::update_belief`. `actions/plan_summary.py::PlannerSummary` documents the
   attach point and stays the cross-phase context signal.
 - **How:** the LLM is the observation model — a `Z_PROMPT` asks for per-hypothesis LIKELIHOODS
   `P(O | h)` only; the CODE does the Bayesian normalization (posterior ∝ prior × Z). Z is floored
@@ -344,12 +344,12 @@ The POMDP belief-state (observation model implemented in 2.2; reward/policy stil
   averages several LLM calls (self-consistency). Formal partial-observability tests land in 2.3.
 
 ### 8.2 Memory → **Belief Store**  *(DONE — Phase 2.1)*
-- **Where:** `belief_store.py` (per-run JSON store) + the guarded hooks in `roles/role.py`
+- **Where:** `pomdp/belief_store.py` (per-run JSON store) + the guarded hooks in `roles/role.py`
   (`_belief_init`, `_belief_persist`). Sibling to the RAG/Memory-Retriever path in
   `server/chat/chat.py::_chat` and the `db/` persistence layer.
 - **Status:** implemented as an inspectable factored-JSON store under `data/beliefs/`, keyed by
   plan id, one snapshot per step (the belief trace). The belief *content* it stores comes from
-  `belief_state.py`; the update that changes that content lands in 2.2.
+  `pomdp/belief_state.py`; the update that changes that content lands in 2.2.
 
 ### 8.3 Planner → **Belief-Conditioned Planner**  *(future — Phase 2.4)*
 - **Where:** `actions/planner.py::Planner.plan` / `update_plan` / `next_task_details` and

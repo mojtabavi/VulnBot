@@ -45,8 +45,8 @@ class Role(BaseModel):
 
     def _belief_init(self, session):
         try:
-            from belief_store import BeliefStore
-            from belief_state import new_belief
+            from pomdp.belief_store import BeliefStore
+            from pomdp.belief_state import new_belief
             run_id = self._belief_run_id()
             if not run_id:
                 return
@@ -68,7 +68,7 @@ class Role(BaseModel):
 
     def _task_to_action(self):
         """Map the current PTG task to a POMDP Action (type inferred from its text)."""
-        from belief_state import Action, ActionType
+        from pomdp.belief_state import Action, ActionType
         task = getattr(self.planner.current_plan, "current_task", None)
         instr = (getattr(task, "instruction", "") or "")
         low = instr.lower()
@@ -85,8 +85,8 @@ class Role(BaseModel):
     def _belief_persist(self, observation=""):
         """Belief Updater hook: run the observation O through the soft Bayesian update."""
         try:
-            from belief_store import BeliefStore
-            from belief_state import update_belief
+            from pomdp.belief_store import BeliefStore
+            from pomdp.belief_state import update_belief
             run_id = self._belief_run_id()
             if not run_id:
                 return
