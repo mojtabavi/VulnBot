@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import re
 from dataclasses import dataclass, field, asdict
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -330,15 +331,75 @@ def score_action(action: Action, belief: Dict[str, Any]) -> float:
     raise NotImplementedError("score_action: implement R = value − cost − detection risk (Phase 2.5).")
 
 
-def choose_action(candidates: Sequence[Action], belief: Dict[str, Any]) -> Action:
-    """Policy π: pick the next action given the current belief.
+# Policy weights (π). Recon is rewarded for the uncertainty it can resolve;
+# exploit/lateral/privesc for the belief they will succeed. Conventional; author may tune.
+W_INFO: float = 1.0
+W_EXPLOIT: float = 1.0
 
-    CONTRACT (implement in Phase 2.4): trade information gain (recon that sharpens
-    b) against exploit value (`score_action`), e.g. argmax over candidates of a
-    combination of expected info-gain and R. Replaces the deterministic PTG
-    next-node pick. Must depend on `belief`.
+
+def _entropy(dist: Dict[str, float]) -> float:
+    """Shannon entropy (nats) of a probability distribution. 0 = certain, higher = uncertain."""
+    vals = [max(float(p), 0.0) for p in dist.values()]
+    s = sum(vals) or 1.0
+    ent = 0.0
+    for p in vals:
+        q = p / s
+        if q > 0.0:
+            ent -= q * math.log(q)
+    return ent
+
+
+def _peek_dist(belief: Dict[str, Any], host: str, factor: str, key: Optional[str],
+               hyps: Sequence[str]) -> Dict[str, float]:
+    """Read-only view of the belief distribution an action bears on (never mutates b)."""
+    hostb = belief.get("hosts", {}).get(host, {})
+    if factor == "os":
+        return dict(hostb.get("os") or _default_dist(hyps))
+    return dict((hostb.get(factor) or {}).get(key) or _default_dist(hyps))
+
+
+def _action_utility(action: Action, belief: Dict[str, Any]) -> float:
+    """Belief-conditioned utility of a candidate action (higher = better).
+
+    RECON: valued by the normalized uncertainty (entropy) of the factor it probes —
+    a recon action is worth more when the belief it would sharpen is uncertain.
+    EXPLOIT/LATERAL/PRIVESC: valued by R = P(succeeds | belief)·value − cost − detection,
+    delegating to `score_action` (Phase 2.5) when implemented, else a simple interim value.
+    Detection is driven by the target host's `honeypot_likelihood` + `action.detection_risk`.
     """
-    raise NotImplementedError("choose_action: implement info-gain vs exploit-value policy (Phase 2.4).")
+    host, factor, key, hyps = _target_factor(action, belief)
+    dist = _peek_dist(belief, host, factor, key, hyps)
+    hostb = belief.get("hosts", {}).get(host, {})
+    detection = float(hostb.get("honeypot_likelihood", 0.0)) + float(action.detection_risk)
+
+    if action.type == ActionType.RECON:
+        max_ent = math.log(len(hyps)) if len(hyps) > 1 else 1.0
+        uncertainty = _entropy(dist) / max_ent if max_ent > 0 else 0.0
+        return W_INFO * uncertainty - detection
+
+    # exploit / lateral / privesc — prefer the author's reward R once 2.5 lands.
+    try:
+        return score_action(action, belief)
+    except NotImplementedError:
+        p_success = float(dist.get("present", 0.5))
+        value = action.value if action.value else 1.0
+        return W_EXPLOIT * p_success * value - float(action.cost) - detection
+
+
+def choose_action(candidates: Sequence[Action], belief: Dict[str, Any]) -> Action:
+    """Policy π: pick the next action given the current belief (argmax utility).
+
+    Trades information gain (recon that sharpens b when it is uncertain) against exploit
+    value (P(succeeds | belief) − cost − detection). Depends on `belief`: the SAME
+    candidate set yields DIFFERENT choices under different beliefs — recon while a target
+    factor is uncertain, exploit once the belief is confident. This replaces the
+    deterministic PTG next-node pick; the Role wiring falls back to the topo pick on any
+    failure (never breaks a run — the free with/without-belief ablation for Phase 3.2).
+    """
+    cands = list(candidates)
+    if not cands:
+        raise ValueError("choose_action: no candidate actions.")
+    return max(cands, key=lambda a: _action_utility(a, belief))
 
 
 def run_agent(*args: Any, **kwargs: Any) -> Any:

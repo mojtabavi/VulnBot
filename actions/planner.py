@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Callable, List, Optional
 
 from pydantic import BaseModel
 
@@ -16,6 +16,9 @@ logger = build_logger()
 class Planner(BaseModel):
     current_plan: Plan = None
     init_description: str = ""
+    # Belief-conditioned selection (Phase 2.4): optional callable ready_tasks -> chosen Task.
+    # Set by the Role from its belief hooks; None = deterministic PTG pick (unchanged behavior).
+    task_selector: Optional[Any] = None
 
     def plan(self):
         if self.current_plan.current_task:
@@ -68,15 +71,30 @@ class Planner(BaseModel):
 
     def next_task_details(self):
         logger.info(f"current_task: {self.current_plan.current_task}")
-        if self.current_plan.current_task is None:
+        current = self.current_plan.current_task
+        if current is None:
             return None
 
-        self.current_plan.current_task_sequence = self.current_plan.current_task.sequence
+        # Phase 2.4 — belief-conditioned pick among the dependency-ready frontier.
+        # Guarded: any failure (or no selector) falls back to the deterministic topo pick,
+        # so a belief problem NEVER breaks a run and the ablation (3.2) is a free toggle.
+        if self.task_selector is not None:
+            try:
+                ready = self.current_plan.ready_tasks
+                if len(ready) > 1:
+                    chosen = self.task_selector(ready)
+                    if chosen is not None:
+                        current = chosen
+                        logger.info(f"belief-selected task: seq={current.sequence} {current.instruction!r}")
+            except Exception as e:  # noqa: BLE001 - belief is auxiliary, never fatal
+                logger.warning(f"belief task selection skipped: {e}")
+
+        self.current_plan.current_task_sequence = current.sequence
         next_task = _chat(
-            query=DeepPentestPrompt.next_task_details.format(todo_task=self.current_plan.current_task.instruction),
+            query=DeepPentestPrompt.next_task_details.format(todo_task=current.instruction),
             conversation_id=self.current_plan.react_chat_id,
             kb_name=Configs.kb_config.kb_name,
-            kb_query=self.current_plan.current_task.instruction
+            kb_query=current.instruction
         )
         return next_task
 

@@ -66,10 +66,9 @@ class Role(BaseModel):
             logger.warning(f"belief llm call failed: {e}")
             return ""
 
-    def _task_to_action(self):
-        """Map the current PTG task to a POMDP Action (type inferred from its text)."""
+    def _task_to_action_for(self, task):
+        """Map a PTG task to a POMDP Action (type inferred from its instruction text)."""
         from pomdp.belief_state import Action, ActionType
-        task = getattr(self.planner.current_plan, "current_task", None)
         instr = (getattr(task, "instruction", "") or "")
         low = instr.lower()
         if any(k in low for k in ("privesc", "privilege", "sudo", "suid", "escalat")):
@@ -81,6 +80,36 @@ class Role(BaseModel):
         else:
             t = ActionType.RECON
         return Action(name=(instr[:60] or self.name), type=t, host=None, params={})
+
+    def _task_to_action(self):
+        """Map the current PTG task to a POMDP Action."""
+        return self._task_to_action_for(getattr(self.planner.current_plan, "current_task", None))
+
+    def _belief_choose_next(self, ready_tasks):
+        """Policy hook (Phase 2.4): let the belief pick among dependency-ready tasks.
+
+        Returns the chosen Task, or None to fall back to the deterministic topo pick.
+        Env `VULNBOT_BELIEF_POLICY=0` disables it (the free with/without-belief ablation).
+        Best-effort: any failure returns None so the run is never broken.
+        """
+        try:
+            import os
+            if os.environ.get("VULNBOT_BELIEF_POLICY", "1") == "0":
+                return None
+            from pomdp.belief_store import BeliefStore
+            from pomdp.belief_state import choose_action
+            run_id = self._belief_run_id()
+            if not run_id:
+                return None
+            b = BeliefStore().load_latest(run_id)
+            if b is None:
+                return None
+            actions = [self._task_to_action_for(t) for t in ready_tasks]
+            chosen = choose_action(actions, b)
+            return ready_tasks[actions.index(chosen)]
+        except Exception as e:  # noqa: BLE001 - belief is auxiliary, never fatal
+            logger.warning(f"belief task selection skipped: {e}")
+            return None
 
     def _belief_persist(self, observation=""):
         """Belief Updater hook: run the observation O through the soft Bayesian update."""
@@ -146,6 +175,7 @@ class Role(BaseModel):
             self.planner = Planner(current_plan=plan, init_description=session.init_description)
 
         self._belief_init(session)   # Phase 2.1: instantiate + persist belief b (keyed by plan id)
+        self.planner.task_selector = self._belief_choose_next  # Phase 2.4: belief drives the PTG pick
         return self.planner.plan()
 
     def run(self, session):

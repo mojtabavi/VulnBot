@@ -70,6 +70,16 @@ class Plan(BaseModel):
                 return task
         return None
 
+    @property
+    def ready_tasks(self) -> List[Task]:
+        """Dependency-ready frontier: unfinished tasks whose deps are all finished-success,
+        in topological order. The candidate set the belief policy (choose_action) picks from;
+        `current_task` is just the deterministic first element of this list.
+        """
+        sorted_tasks = self.get_sorted_tasks()
+        done = {t.sequence for t in sorted_tasks if t.is_finished and t.is_success}
+        return [t for t in sorted_tasks
+                if not t.is_finished and all(dep in done for dep in t.dependencies)]
 
     @property
     def finished_tasks(self):
