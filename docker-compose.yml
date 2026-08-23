@@ -38,7 +38,14 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW                     # nmap SYN scans / raw sockets
-    networks: [labnet]
+    # labnet = the isolated attack path to `target`; egress = a normal bridge required so the host
+    # can PUBLISH kali's SSH port (Docker cannot bind a host port to an internal-only network).
+    # Joining egress also gives kali outbound internet — acceptable for the tool host (target stays
+    # labnet-only, isolated). The host-side pipeline (octopus spawns python on the host) then SSHes
+    # over 127.0.0.1:2222; key-based auth only (entrypoint installs AGENT_SSH_PUBKEY).
+    networks: [labnet, egress]
+    ports:
+      - "127.0.0.1:2222:22"
     restart: unless-stopped
 
   target:
@@ -47,6 +54,35 @@ services:
     container_name: target
     hostname: target
     networks: [labnet]              # target has NO internet by design
+    restart: unless-stopped
+
+  # MySQL — sessions/plans/tasks/conversations/messages store (profile: data). The host-side
+  # Python pipeline connects over the published loopback port, so this is the ONE service with a
+  # host port. Opt-in via `--profile data` (octopus starts it when MySQL mode = docker).
+  mysql:
+    image: mysql:8
+    container_name: mysql
+    hostname: mysql
+    profiles: [data]
+    env_file: .env
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-vulnbot}
+      MYSQL_USER: ${MYSQL_USER:-vulnbot}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-vulnbot}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-vulnbot}
+    # On labnet so a containerized agent reaches it as `mysql:3306`, AND a published loopback port
+    # so the host-side pipeline (octopus spawns python on the host) reaches it at 127.0.0.1:3306.
+    # labnet is internal (no egress); publishing a host port is host→container DNAT, unaffected by it.
+    networks: [labnet]
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-vulnbot}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     restart: unless-stopped
 
   # Local LLM served on the RTX 5080 (profile: local). Lives on labnet only — no egress.
@@ -84,3 +120,4 @@ services:
 
 volumes:
   ollama_models:
+  mysql_data:

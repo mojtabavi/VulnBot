@@ -123,11 +123,42 @@ export const PROVIDERS: Provider[] = [
     kind: 'openai',
     baseUrl: '', // user supplies (vLLM, LM Studio, etc.)
     modelsUrl: '', // derived as `${baseUrl}/models` at fetch time when non-empty
-    authModes: ['api_key', 'none'],
+    authModes: ['api_key'], // just a key; blank on a local no-auth server is placeholdered in Setup
     docs: '',
     modelHint: 'your-model-id',
   },
 ];
+
+/** Extended-thinking levels (Anthropic only). `budget` = thinking token budget; 0 = disabled.
+ *  The Python AnthropicChat maps `budget` → messages.create(thinking={type:enabled,budget_tokens}). */
+export interface ThinkingLevel {
+  id: string;
+  label: string;
+  budget: number;
+}
+export const THINKING_LEVELS: ThinkingLevel[] = [
+  { id: 'off', label: 'Off (no extended thinking)', budget: 0 },
+  { id: 'low', label: 'Low (~4k thinking tokens)', budget: 4000 },
+  { id: 'medium', label: 'Medium (~12k thinking tokens)', budget: 12000 },
+  { id: 'high', label: 'High (~24k thinking tokens)', budget: 24000 },
+];
+
+/** Setup-wizard step ids the LLM sub-flow routes through (see cli/src/ui/Setup.tsx). */
+export type LlmStep = 'base_url' | 'auth' | 'api_key' | 'model_fetch';
+
+/** First wizard step after a provider is chosen. A provider with no preset baseUrl (the custom
+ *  OpenAI-compatible endpoint) must supply a Base URL first; the rest branch on auth. */
+export function firstLlmStep(p: Provider): LlmStep {
+  if (!p.baseUrl) return 'base_url';
+  return stepAfterBaseUrl(p);
+}
+
+/** Step once base_url is known: multi-auth → pick a mode; keyless (ollama) → fetch; else → API key. */
+export function stepAfterBaseUrl(p: Provider): Exclude<LlmStep, 'base_url'> {
+  if (p.authModes.length > 1) return 'auth';
+  if (p.authModes[0] === 'none') return 'model_fetch';
+  return 'api_key';
+}
 
 const BY_ID = new Map(PROVIDERS.map((p) => [p.id, p]));
 

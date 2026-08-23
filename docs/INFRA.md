@@ -10,8 +10,9 @@ attacks a deliberately vulnerable target on a network with **no route to the pub
 
 | Service | Image / build | Role | Networks | Profile |
 |---------|---------------|------|----------|---------|
-| **kali-tools** | `docker/kali` (kalilinux/kali-rolling + `kali-linux-headless`) | Tooling host. Exposes **SSH (22)** for arbitrary commands and **msfrpcd (55553)** for Metasploit RPC. | `labnet` | always |
+| **kali-tools** | `docker/kali` (kalilinux/kali-rolling + `kali-linux-headless`) | Tooling host. Exposes **SSH (22)** for arbitrary commands and **msfrpcd (55553)** for Metasploit RPC. SSH is also **published on the host at `127.0.0.1:2222`** so the host-side pipeline (octopus spawns python on the host) can reach it — a containerized agent still uses `kali-tools:22`. **Joins `egress`** too: Docker can't bind a host port to an internal-only network, so publishing `:2222` requires a non-internal bridge (this also gives kali outbound internet — the tool host, not the target). | `labnet` + `egress` + host `:2222` | always |
 | **target** | `tleemcjr/metasploitable2` (example) | Deliberately vulnerable victim. No internet by design. | `labnet` | always |
+| **mysql** | `mysql:8` | Sessions/plans/tasks/conversations/messages store. On `labnet` (a containerized agent reaches it as `mysql:3306`) **and** published on the host (`127.0.0.1:3306`, so the host-side pipeline connects over loopback — same rationale as kali's `:2222`). | `labnet` + host `:3306` | `data` |
 | **ollama** | `ollama/ollama` | Local LLM server on the RTX 5080 (used when `LLM_BACKEND=local`). | `labnet` | `local` |
 | **agent-local** | `docker/agent` (Python 3.11) | VulnBot + belief app. Repo mounted at `/app`. **No egress.** | `labnet` | `local` |
 | **agent-api** | `docker/agent` | Same agent, hosted-LLM variant. Joins egress for API calls. | `labnet`, `egress` | `api` |
@@ -33,11 +34,16 @@ and all tooling refers to it as `agent`.
    (api only) └────────────►  egress (bridge, has internet)  ────►  hosted LLM API
 ```
 
-- **`labnet`** is `internal: true` → Docker gives it **no gateway to the host/internet**. kali and
-  target can never reach the public internet. This makes the attack path isolated by construction.
-- **`egress`** (normal bridge, has internet) is attached to **`agent-api` only**, and only under
-  the `api` profile. Target and kali never touch it.
-- In the **`local`** profile there is **no egress anywhere** — fully offline.
+- **`labnet`** is `internal: true` → Docker gives it **no gateway to the host/internet**. The
+  **target** can never reach the public internet. This keeps the attack path isolated by construction.
+- **`egress`** (normal bridge, has internet) is attached to **`agent-api`** (under the `api` profile)
+  **and to `kali-tools`** (always). kali joins it for one structural reason: Docker cannot publish a
+  host port from an internal-only container, and the host-side pipeline needs to SSH kali at
+  `127.0.0.1:2222`. Side effect: kali has outbound internet. **The target never touches egress** —
+  the property that matters (an isolated victim) holds.
+- In the **`local`** profile the agent has no egress; kali still does (for the published SSH port).
+  If you need kali fully offline too, run the pipeline inside the `agent` container instead (SSH to
+  `kali-tools:22` on labnet — no host port needed) and drop `egress` from kali-tools.
 
 Verify the invariant at any time:
 
@@ -59,6 +65,13 @@ Current labnet subnet: `172.20.0.0/16` (gateway `172.20.0.1`). Prefer **hostname
 - SSH is **key-based only** (`PasswordAuthentication no`). The agent's private key is mounted
   read-only at `/root/.ssh/id_ed25519`; its public key is authorized on kali via `AGENT_SSH_PUBKEY`
   in `.env` (installed by `docker/kali/entrypoint.sh`).
+- **Host-side pipeline (docker executor mode):** octopus runs `python pentest.py` on the host and
+  SSHes to kali over the published `127.0.0.1:2222` using the **same key** at
+  `docker/agent/keys/agent_ed25519`. Setup writes `basic_config.yaml` `kali:` with
+  `hostname: 127.0.0.1`, `port: 2222`, `key_filename: docker/agent/keys/agent_ed25519`;
+  `ShellManager` prefers key auth when `key_filename` is set + present, else falls back to password
+  (remote-Kali mode). octopus TCP-preflights `127.0.0.1:2222` (and the key file) before a run, so a
+  down lab surfaces as one clear line instead of a paramiko `getaddrinfo failed` traceback.
 - msfrpcd is started by the kali entrypoint with `-S` (no SSL — acceptable on the isolated labnet)
   and the password from `MSF_RPC_PASSWORD`.
 
@@ -93,10 +106,60 @@ Select the backend/profile with `-Backend local|api` (PowerShell) or `PROFILE=lo
 - `api` → run `./lab.ps1 up -Backend api`; set `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` in `.env`; the
   agent (and only the agent) has egress.
 
+**Extended thinking (native Anthropic).** `llm_model: anthropic` with a non-`off` `thinking_level`
+needs **`anthropic>=0.47`** for the `thinking=` request param (`requirements.txt` pins
+`anthropic>=0.49,<1`). On an older SDK, `server/chat/chat.py::AnthropicChat` degrades to a normal
+call and logs one warning instead of crashing. The old `anthropic==0.40.0` pin raised
+`Messages.create() got an unexpected keyword argument 'thinking'`, which `_chat` returned as the
+`**ERROR**` sentinel and broke planning — `pip install -U anthropic` (or reinstall requirements)
+enables thinking again.
+
+## MySQL provisioning (local vs docker)
+
+VulnBot **always** needs MySQL (sessions/plans/tasks/conversations/messages). The octopus CLI asks
+once, at setup, where it runs and persists the choice (`mysqlMode` in `cli/.octopus.json`):
+
+- **docker** (recommended) — the compose `mysql` service (profile `data`), on `labnet` + published
+  on `127.0.0.1:3306`. octopus provisions it **on startup** (and again as a `/run` preflight): if the
+  DB is unreachable it runs `docker compose --profile data up -d mysql`, waits for it, then creates
+  the tables via `python pentest.py --init-db` (langchain-free — it does **not** go through `cli.py`,
+  which would pull the FastAPI/RAG stack). Already-reachable = silent no-op. The host-side pipeline
+  connects at `127.0.0.1:3306`; a containerized agent would use `mysql:3306` on labnet. Creds come
+  from the `MYSQL_*` vars in `.env`; `db_config.yaml` is written to match (`127.0.0.1:3306`,
+  `vulnbot/vulnbot`).
+- **local** — you run your own MySQL on `127.0.0.1:3306`. `/run` only checks reachability; if it's
+  down it prints one line (*"start your local MySQL, then retry /run"*) and does **not** spawn.
+  Create the tables once with `python pentest.py --init-db`.
+
+The `mysql` service is opt-in (`--profile data`), so `./lab.ps1 up` / `dev-up` (kali+target+ollama)
+don't start it; octopus starts it on demand in docker mode.
+
+## Troubleshooting — the `/run` crash cascade
+
+A single dead dependency (almost always **MySQL not running**) used to surface as a confusing
+4-error stack: `pymysql OperationalError 2003` → `too many values to unpack (expected 2)` →
+`'NoneType' has no attribute 'current_task'` → `'NoneType' has no attribute 'tasks'`. Root cause: the
+LLM choke point `server/chat/chat.py::_chat` swallows the DB error and returns an error **string**
+where callers unpack a **tuple**, so planning fails, `current_plan` stays `None`, and every later
+deref crashes.
+
+This is now fixed two ways: **(1)** `pentest.py` preflights MySQL (`SELECT 1`) and exits with one
+clear line if it's down; the pipeline also fails fast (`run` aborts on a null plan, `put_message` is
+guarded). **(2)** octopus preflights the DB before spawning (see above). If you still see the old
+cascade, you're running stale code — pull and retry. If `--init-db` says *"MySQL unreachable"*, the
+container/server isn't up yet or `db_config.yaml` points at the wrong host/port.
+
+A second variant of the same class had the LLM error sentinel as the root cause: an old
+`anthropic` SDK rejecting `thinking=` → `_chat` returns `**ERROR**: …` → `WritePlan` finds no
+`<json>` → `parse_tasks(None)` → `json.loads(None)`. Fixed by version-gating thinking (degrade,
+don't crash) **and** hardening the parse path (`WritePlan.run`/`parse_tasks` treat a falsy/`**ERROR**`
+response as a clean planning failure, so `run` aborts with one message). See *Extended thinking*
+above.
+
 ## Secrets
 
 All secrets live in **`.env`** (git-ignored), never in code or images:
-`MSF_RPC_PASSWORD`, `AGENT_SSH_PUBKEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`. Template is
+`MSF_RPC_PASSWORD`, `AGENT_SSH_PUBKEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MYSQL_*`. Template is
 `.env.example`. The agent SSH keypair lives in `docker/agent/keys/` (git-ignored); regenerate on a
 fresh clone with:
 

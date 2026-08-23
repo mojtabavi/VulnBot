@@ -7,12 +7,12 @@
  *  sanctioned API-key path (auth_mode: api_key) works without any of this. Every constant is
  *  overridable via env so it can be re-pinned without a code change.
  *
- *  Flow: build an authorize URL (PKCE) → user consents in the browser → capture the code (loopback
- *  redirect, or paste fallback) → exchange for {access_token, refresh_token, expires_in} → persist
- *  to a git-ignored cli/.octopus-auth.json (0600). refresh() renews on expiry. */
+ *  Flow: build an authorize URL (PKCE, redirect = Anthropic's console callback) → user consents in
+ *  the browser → Anthropic shows the auth code → user pastes it back → exchange for
+ *  {access_token, refresh_token, expires_in} → persist to a git-ignored cli/.octopus-auth.json
+ *  (0600). refresh() renews on expiry. */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,7 +25,10 @@ const AUTHORIZE_URL = process.env.ANTHROPIC_OAUTH_AUTHORIZE_URL ?? 'https://clau
 const TOKEN_URL = process.env.ANTHROPIC_OAUTH_TOKEN_URL ?? 'https://console.anthropic.com/v1/oauth/token';
 const CLIENT_ID = process.env.ANTHROPIC_OAUTH_CLIENT_ID ?? '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 const SCOPES = process.env.ANTHROPIC_OAUTH_SCOPES ?? 'org:create_api_key user:profile user:inference';
-const LOOPBACK_PORT = parseInt(process.env.ANTHROPIC_OAUTH_PORT ?? '54545', 10);
+// The public Claude client is registered ONLY for this console callback (loopback is rejected as
+// "Invalid request format"). It renders the auth code on-screen for the user to paste back.
+const REDIRECT_URI =
+  process.env.ANTHROPIC_OAUTH_REDIRECT_URI ?? 'https://console.anthropic.com/oauth/code/callback';
 
 export interface AuthTokens {
   access_token: string;
@@ -55,20 +58,61 @@ export interface AuthUrl {
   state: string;
   redirectUri: string;
 }
-/** Build the consent URL + the PKCE/state secrets the exchange step will need. */
-export function buildAuthUrl(redirectUri = `http://localhost:${LOOPBACK_PORT}/callback`): AuthUrl {
+/** Build the consent URL + the PKCE/state secrets the exchange step will need.
+ *  `code=true` tells the authorize endpoint to render the code for manual paste. */
+export function buildAuthUrl(redirectUri = REDIRECT_URI): AuthUrl {
   const { verifier, challenge } = makePkce();
-  const state = randomState();
-  const q = new URLSearchParams({
-    response_type: 'code',
-    client_id: CLIENT_ID,
-    redirect_uri: redirectUri,
-    scope: SCOPES,
-    code_challenge: challenge,
-    code_challenge_method: 'S256',
-    state,
-  });
-  return { url: `${AUTHORIZE_URL}?${q.toString()}`, verifier, state, redirectUri };
+  // Anthropic's Claude OAuth client expects `state` to be the PKCE verifier itself (the callback
+  // returns the code as `<code>#<state>` and the token exchange sends both back).
+  const state = verifier;
+  // Encode manually with encodeURIComponent so scope spaces become %20 (URLSearchParams would
+  // use `+`).
+  const params: [string, string][] = [
+    ['code', 'true'],
+    ['client_id', CLIENT_ID],
+    ['response_type', 'code'],
+    ['redirect_uri', redirectUri],
+    ['scope', SCOPES],
+    ['code_challenge', challenge],
+    ['code_challenge_method', 'S256'],
+    ['state', state],
+  ];
+  const qs = params.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+  return { url: `${AUTHORIZE_URL}?${qs}`, verifier, state, redirectUri };
+}
+
+/** Parse what the user pastes after authorizing. Accepts `code#state`, a bare code, or the full
+ *  redirect URL (`…?code=…&state=…`). */
+export function splitPastedCode(pasted: string): { code: string; state?: string } {
+  const t = pasted.trim();
+  if (t.includes('code=')) {
+    try {
+      const u = new URL(t);
+      const code = u.searchParams.get('code');
+      if (code) return { code, state: u.searchParams.get('state') ?? undefined };
+    } catch {
+      /* not a URL — fall through */
+    }
+  }
+  const hash = t.indexOf('#');
+  if (hash !== -1) return { code: t.slice(0, hash), state: t.slice(hash + 1) };
+  return { code: t };
+}
+
+/** Exchange a pasted authorization code for tokens and persist them. */
+export async function completeLogin(
+  pasted: string,
+  verifier: string,
+  redirectUri: string,
+  expectState?: string,
+  opts: ExchangeOpts = {},
+): Promise<AuthTokens> {
+  const { code, state } = splitPastedCode(pasted);
+  if (!code) throw new Error('no authorization code pasted');
+  if (expectState && state && state !== expectState) throw new Error('state mismatch (possible CSRF)');
+  const tokens = await exchangeCode(code, verifier, redirectUri, state ?? expectState, opts);
+  saveAuth(tokens);
+  return tokens;
 }
 
 // ── token persistence ─────────────────────────────────────────────────────────
@@ -164,76 +208,43 @@ export async function getValidToken(opts: ExchangeOpts = {}): Promise<string | n
   return next.access_token;
 }
 
-// ── loopback capture: run a one-shot server that catches the redirect ────────────
-export function startLoopbackCapture(
-  expectState: string,
-  port = LOOPBACK_PORT,
-  timeoutMs = 300_000,
-): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const server = http.createServer((req, res) => {
-      const u = new URL(req.url ?? '/', `http://localhost:${port}`);
-      if (u.pathname !== '/callback') {
-        res.writeHead(404).end();
-        return;
-      }
-      const code = u.searchParams.get('code');
-      const state = u.searchParams.get('state');
-      const err = u.searchParams.get('error');
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(
-        `<html><body style="font-family:sans-serif"><h3>${
-          code && state === expectState ? 'Signed in — you can close this tab.' : 'Sign-in failed.'
-        }</h3></body></html>`,
-      );
-      cleanup();
-      if (err) return reject(new Error(`authorization error: ${err}`));
-      if (!code) return reject(new Error('no code in callback'));
-      if (state !== expectState) return reject(new Error('state mismatch (possible CSRF)'));
-      resolve(code);
-    });
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('sign-in timed out'));
-    }, timeoutMs);
-    function cleanup(): void {
-      clearTimeout(timer);
-      server.close();
-    }
-    server.on('error', (e) => {
-      cleanup();
-      reject(e);
-    });
-    server.listen(port, '127.0.0.1');
-  });
-}
-
-/** Open a URL in the system browser (best-effort; no dependency). */
+/** Open a URL in the system browser (best-effort; no dependency).
+ *
+ *  win32 is fiddly and the OAuth URL is long + full of `&` and `%`:
+ *   - `cmd /c start` splits the command line on the first unquoted `&` → truncated URL
+ *     (Anthropic: "Missing client_id"). Never use it.
+ *   - `explorer.exe <url>` silently no-ops on some machines (observed here).
+ *  So on Windows we try, in order, the methods that pass the WHOLE URL to the default handler
+ *  without shell `&`-splitting: rundll32 FileProtocolHandler, then PowerShell Start-Process
+ *  (URL single-quoted so `&` is literal), then explorer as a last resort. First one that
+ *  launches without throwing wins. If all fail, the caller has already printed the full URL. */
 export async function openBrowser(url: string): Promise<void> {
   const { execa } = await import('execa');
-  const cmd =
+  const attempts: { file: string; args: string[]; okNonZero?: boolean }[] =
     process.platform === 'win32'
-      ? { file: 'cmd', args: ['/c', 'start', '', url] }
+      ? [
+          { file: 'rundll32.exe', args: ['url.dll,FileProtocolHandler', url] },
+          { file: 'powershell', args: ['-NoProfile', '-NonInteractive', '-Command', `Start-Process '${url.replace(/'/g, "''")}'`] },
+          { file: 'explorer.exe', args: [url], okNonZero: true }, // explorer exits non-zero even on success
+        ]
       : process.platform === 'darwin'
-      ? { file: 'open', args: [url] }
-      : { file: 'xdg-open', args: [url] };
-  try {
-    await execa(cmd.file, cmd.args, { detached: true, stdio: 'ignore' });
-  } catch {
-    /* user can copy the URL manually */
+      ? [{ file: 'open', args: [url] }]
+      : [{ file: 'xdg-open', args: [url] }];
+
+  for (const a of attempts) {
+    try {
+      await execa(a.file, a.args, { detached: true, stdio: 'ignore', windowsHide: true });
+      return; // launched
+    } catch {
+      if (a.okNonZero) return; // explorer likely opened it anyway; stop trying
+      // otherwise fall through to the next method
+    }
   }
 }
 
-export interface LoginResult {
-  tokens: AuthTokens;
-}
-/** Full loopback login: build URL → (caller shows/opens it) → capture code → exchange → save. */
-export async function login(hooks: { onUrl?: (url: string) => void; open?: boolean } = {}): Promise<LoginResult> {
-  const { url, verifier, state, redirectUri } = buildAuthUrl();
-  hooks.onUrl?.(url);
-  if (hooks.open !== false) await openBrowser(url);
-  const code = await startLoopbackCapture(state);
-  const tokens = await exchangeCode(code, verifier, redirectUri, state);
-  saveAuth(tokens);
-  return { tokens };
+/** Begin the manual-paste login: returns the consent URL + the secrets `completeLogin` needs.
+ *  The caller opens the URL, the user authorizes, copies the shown code, and passes it to
+ *  `completeLogin(pasted, verifier, redirectUri, state)`. */
+export function beginLogin(): AuthUrl {
+  return buildAuthUrl();
 }

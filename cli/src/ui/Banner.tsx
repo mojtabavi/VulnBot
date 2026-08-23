@@ -1,62 +1,67 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Box, Text } from 'ink';
 
-// Braille octopus. The first + last two rows are the decorative ring arcs — we drop them,
-// then trim blank margin columns so it's smaller. Head stays static; only the lower (leg)
-// rows sway, so the tentacles really move.
-const RAW = [
-  '⠀⠀⠀⠀⠀             ⠀⠀ ⠀⢀⣠⣤⣤⣤⣤⣤⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀',
-  '⠀⠀⠀⠀⠀          ⠀⠀ ⠀ ⢠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀',
-  '⠀⠀⠀        ⠀⠀⠀⠀⠀⠀  ⠀⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀',
-  '⠀⠀      ⠀⣀⣤⣤⣄⣀⠀⠀  ⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⢀⣀⣤⣤⣄⣀⡀⠀⠀',
-  '⠀      ⣶⡟⠛⠉⠉⠛⢿⣷⡆⠀ ⢸⣿⡿⢿⣿⣿⣿⣿⣿⡿⢿⣿⠁⠀⠀⣶⣿⠟⠋⠉⠉⠛⣷⣆⠀⠀',
-  '⠀     ⣸⡯⠀⠀⠀⠀⠀⠈⣿⣿⡇ ⠀⣸⣿⠀⠀⢈⣻⣿⣏⠁⠀⢀⣿⡀⠀⢾⣿⡏⠀⠀⠀ ⠀⠀⠠⣿⡄⠀',
-  '     ⠀⢿⣷⣆⡀⠀⢀⡤⠀⢸⣿⣷⠀⢹⣿⣷⣾⣿⠏⠀⢿⣿⣾⣿⣿⠁⢰⣿⣿⠃⠀⢄⠀⠀⣀⣲⣿⡇⡀',
-  '     ⠀⠈⠙⠿⠟⠛⠁⠀⠀⠀⠻⢿⣧⣤⣤⠈⣽⣿⣷⣿⣿⣿⡏⢠⣤⣤⣾⡿⠋⠀⠀⠀⠙⠛⠿⠟⠋⠁⠀',
-  '    ⠀⠀⢠⣶⣶⣿⣿⣿⣷⣶⣾⣦⣤⡈⠛⠛⠓⣀⣙⠛⠘⢙⣡⡀⠛⠛⡋⢡⣤⣶⣷⣶⣿⣿⣿⣿⣶⣦⡀⠀',
-  '     ⠀⣿⣿⣿⠟⠋⠉⠉⠉⠛⠿⣿⣿⣿⣴⣾⡿⠟⢃⢀⡙⠻⣿⣷⣼⣿⣿⡿⠟⠛⠉⠉⠉⠙⠻⣿⣿⡇⠀',
-  '     ⠀⣿⡟⠁⠀⠀⠀⠀⠀⢀⠀⠀⠉⠉⠉⣡⣀⣼⣿⠰⣿⣆⣠⡈⠉⠉⠁⠀⢠⠀⠀⠀  ⠀⠀⠀⠙⣿⣏⠀',
-  '     ⠀⢿⡏⠀⠀⠀⠀⠀⠀⢈⡇⢀⣠⣾⣾⣿⣿⡿⠋⠀⠻⣿⣿⣿⣶⣧⣄⠀⣏⠀⠀⠀  ⠀⠀⠀⠀⣿⡇',
-  '⠀     ⠘⣿⣇⣀⠀⠀⠀⣀⣼⢁⣾⡿⠛⠉⠁⠀⠀⠀⠀⠀⠀⠀⠉⠉⠻⣿⣧⠹⣅⡀⠀  ⠀⠀⣀⣺⡿⠀⠀',
-  '⠀      ⠙⣿⣿⣦⣿⣶⣿⢃⣾⡏⠀⠀⠀⠀⠈⠶⣄⠀⣴⠆⠀⠀⠀⠀⠈⢿⣦⢹⣷⣾⣷⣾⣿⡿⠁⠀⠀',
-  '⠀⠀      ⠈⠻⠿⠿⠛⠃⣾⣿⠀⠀⠀⠀⠀⠀⠀⣿⠐⡗⠀⠀⠀⠀⠀⠀⢸⣿⡆⠙⠻⠿⠿⠋⠀⠀⠀',
-  '⠀⠀⠀        ⠀⠀⠀⠀⠻⣿⣧⣀⠀⠀⠀⢀⣸⣿⢈⣿⡂⠀⠀⠀⢀⣀⣿⣿⠇⠀⠀⠀⠀⠀⠀⠀',
-  '⠀⠀⠀⠀         ⠀⠀⠀⠈⠻⣿⣷⣿⣶⣿⣿⠇⠀⢿⣿⣷⣾⣷⣾⡿⠟⠀⠀⠀⠀⠀⠀⠀',
-  '⠀⠀⠀⠀⠀⠀⠀          ⠀⠀⠙⠛⠻⠟⠋⠀⠀⠀⠀⠀⠀',
-]
+// Octopus art. Stored with its original padding; the component strips surrounding blank rows and
+// the common left margin at load so it renders compact (no huge whitespace border).
+const RAW_ART = String.raw`
+                                    ██████████████████
+                                █████████████████████████
+                               ███████████████████████████
+                             ███████████████████████████████
+                            █████████████████████████████████
+                           ████████████████████████████████████
+                          █████████████████████████████████████
+                           ████████████████████████████████████
+                          █████████████████████████████████████
+                           ████████████████████████████████████
+                           █ ███████████████████████████████ █
+                              ██████████████████████████████
+                                 █████████████████████ █
+                                    █ █████░████████ █
+                            █████     ██████████████    █████
+                             ████████     ██████     ████████
+                               ██ █       █ ██ █     █ █ █
+                                        █   █   ██
+                                    ███            ███
+                               ██████   ██████████   ██████
+                          █████████ █████████ ████████░█ ███████
+                     ░██████████████████████████████████████████████
+                    ██████       ██████████    █████████       ██████
+                   █████       ████████           █████████       ████
+                   █░█       ████████               ████████       ███
+                   ███       ████████                ███████       ███
+                     ██      ██████                  ███████       ██
+                      ██      ███████                ██████       █
+                       ██      ██████               ███████      ██
+                                 ██████            █████
+                                   ████           ████
+                               █      ██         ███     ██
+                                      ██          ██
+                                     ██            █
+                                    ██              █
+                                                    █`;
 
-// Show the art exactly as-is (no crop/trim). Only the lower rows sway to move the legs.
-const ART = RAW;
-const LEG_START = Math.ceil(ART.length * 0.5); // lower half = tentacles
-const AMP_MAX = 2;
-
-function legAmp(row: number): number {
-  if (row < LEG_START) return 0;
-  const t = (row - LEG_START) / Math.max(1, ART.length - 1 - LEG_START);
-  return Math.max(1, Math.round(t * AMP_MAX));
+/** Drop leading/trailing blank rows, then strip the common left indent so the art is compact. */
+function trimArt(raw: string): string[] {
+  let lines = raw.replace(/\n$/, '').split('\n');
+  while (lines.length && lines[0].trim() === '') lines = lines.slice(1);
+  while (lines.length && lines[lines.length - 1].trim() === '') lines = lines.slice(0, -1);
+  const indent = Math.min(
+    ...lines.filter((l) => l.trim() !== '').map((l) => l.match(/^ */)![0].length),
+  );
+  return lines.map((l) => l.slice(indent).replace(/\s+$/, ''));
 }
 
-export default function Banner({ version, animate = true }: { version: string; animate?: boolean }): React.ReactElement {
-  const [t, setT] = useState(0);
-  useEffect(() => {
-    if (!animate) return;
-    const id = setInterval(() => setT((x) => x + 1), 150);
-    return () => clearInterval(id);
-  }, [animate]);
+const ART = trimArt(RAW_ART);
 
+export default function Banner({ version }: { version: string; animate?: boolean }): React.ReactElement {
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {ART.map((line, i) => {
-        const amp = legAmp(i);
-        const sway = animate ? Math.round(amp * Math.sin(t * 0.5 + i * 0.8)) : 0;
-        const indent = ' '.repeat(AMP_MAX + sway); // head rows: amp 0 → fixed indent
-        return (
-          <Text key={i} color="magentaBright">
-            {indent}
-            {line}
-          </Text>
-        );
-      })}
+      {ART.map((line, i) => (
+        <Text key={i} color="magentaBright">
+          {line}
+        </Text>
+      ))}
       <Text color="magentaBright" bold>{'  OCTOPUS'}</Text>
       <Text color="gray">{'  belief-state pentest agent · v'}{version}</Text>
     </Box>

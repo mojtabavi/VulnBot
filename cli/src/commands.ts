@@ -1,5 +1,5 @@
 /** Slash-command handler for the REPL. Returns lines to print and an optional UI action. */
-import { getModel, setModel, loadPrefs, getModelConfig, setProvider } from './config.js';
+import { getModel, setModel, loadPrefs, getModelConfig } from './config.js';
 import { getProvider, listProviders } from './providers.js';
 import { labUp, labDown, labStatus, smoke, dockerAvailable } from './executor.js';
 import { formatBelief } from './belief.js';
@@ -27,7 +27,9 @@ export const COMMANDS: CommandSpec[] = [
 
 export interface CommandResult {
   lines: string[];
-  action?: 'quit' | 'setup' | 'clear' | 'pick-model' | 'pick-provider' | 'login';
+  action?: 'quit' | 'setup' | 'clear' | 'pick-model' | 'reconfigure-llm' | 'login' | 'run-pentest';
+  /** for 'run-pentest': the task/target description passed to the pipeline. */
+  description?: string;
 }
 
 /** Whether a command is slow (async work → show a spinner) and its verb label. */
@@ -37,7 +39,6 @@ export function commandMeta(input: string): { slow: boolean; label: string } {
   if (cmd === 'lab' && sub === 'down') return { slow: true, label: 'Stopping lab…' };
   if (cmd === 'lab' && sub === 'smoke') return { slow: true, label: 'Scanning target…' };
   if (cmd === 'lab') return { slow: true, label: 'Working on lab…' };
-  if (cmd === 'run') return { slow: true, label: 'Processing…' };
   if (cmd === 'status') return { slow: true, label: 'Checking status…' };
   return { slow: false, label: 'Working…' };
 }
@@ -72,24 +73,30 @@ export async function handleCommand(input: string): Promise<CommandResult> {
     case 'model': {
       // no arg → interactive live picker (Repl fetches the catalog + opens an overlay).
       if (args.length === 0) return { lines: [], action: 'pick-model' };
+      // Named providers pick from their live /models list; only the custom endpoint takes a
+      // hand-typed id (it has no known catalog).
+      const c = getModelConfig();
+      if (c.provider !== 'openai-compatible') {
+        return {
+          lines: [
+            `${getProvider(c.provider)?.label ?? c.provider} models come from the live list.`,
+            `run /model (no arg) to pick one.`,
+          ],
+        };
+      }
       setModel(args[0]);
       return { lines: [`model switched -> ${args[0]} (model_config.yaml updated; hot-reloaded on next call)`] };
     }
 
     case 'provider': {
-      // no arg → provider picker overlay; <id> → switch directly.
-      if (args.length === 0) return { lines: [], action: 'pick-provider' };
-      const id = args[0];
-      if (!getProvider(id)) {
+      // Switching provider needs a fresh key + a model pick (a model id is provider-specific,
+      // and one provider's key can't auth another). So /provider always opens the guided LLM
+      // wizard (provider → auth → key → model) instead of a silent, half-configured switch.
+      if (args.length > 0 && !getProvider(args[0])) {
         const known = listProviders().map((p) => p.id).join(', ');
-        return { lines: [`unknown provider: ${id}`, `known: ${known}`] };
+        return { lines: [`unknown provider: ${args[0]}`, `known: ${known}`] };
       }
-      setProvider(id);
-      const p = getProvider(id)!;
-      const lines = [`provider -> ${p.label} (base_url ${p.baseUrl || '(custom)'})`];
-      if (p.authModes[0] !== 'none') lines.push('set the key with /login (oauth) or re-run /setup; then /model to pick a model.');
-      else lines.push('local provider — no key needed; /model to pick a model.');
-      return { lines };
+      return { lines: ['choose a provider (a key + model pick follow)…'], action: 'reconfigure-llm' };
     }
 
     case 'login':
@@ -104,6 +111,7 @@ export async function handleCommand(input: string): Promise<CommandResult> {
         `provider: ${p?.label ?? c.provider}  (${c.kind})`,
         `auth:     ${c.auth_mode === 'oauth' ? 'subscription (Claude Pro/Max)' : c.auth_mode}`,
         `model:    ${c.model || '(unset)'}`,
+        ...(c.kind === 'anthropic' ? [`thinking: ${c.thinking_level || 'off'}`] : []),
         `base_url: ${c.base_url || '(unset)'}`,
         `executor: ${prefs.executorMode}`,
       ];
@@ -124,17 +132,22 @@ export async function handleCommand(input: string): Promise<CommandResult> {
       return { lines: formatBelief(args[0]) };
 
     case 'run': {
-      const target = args[0] ?? '(from setup)';
-      const prefs = loadPrefs();
-      const lines = [`starting assessment against ${target} via executor=${prefs.executorMode}...`];
-      if (prefs.executorMode === 'docker' && (await dockerAvailable())) {
-        lines.push(...(await smoke()).split('\n'));
+      const arg = args.join(' ').trim();
+      if (!arg) {
+        return { lines: ['usage: /run <target-ip | task description>', '  e.g. /run 172.20.0.10', '  or   /run web app at 10.0.0.5, find and exploit an RCE'] };
       }
-      lines.push(
-        'NOTE: the belief-driven pentest episode is wired after belief tasks 2.4/2.5.',
-        '      this interim /run validates the executor channel only.'
-      );
-      return { lines };
+      // bare IP → wrap in a task sentence; free text → use as-is.
+      const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(arg);
+      const description = isIp ? `Perform an authorized penetration test of the target host ${arg}.` : arg;
+      return {
+        lines: [
+          'starting pentest — the executor runs REAL tooling on Kali (authorized lab targets only).',
+          `  task: ${description}`,
+          '  Ctrl+C stops the run.',
+        ],
+        action: 'run-pentest',
+        description,
+      };
     }
 
     default:

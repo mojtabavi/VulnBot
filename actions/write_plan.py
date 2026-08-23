@@ -17,6 +17,11 @@ class WritePlan(BaseModel):
     def run(self, init_description) -> str:
         rsp = _chat(query=DeepPentestPrompt.write_plan, conversation_id=self.plan_chat_id, kb_name=Configs.kb_config.kb_name, kb_query=init_description)
 
+        # _chat returns the sentinel string "**ERROR**: ..." on any LLM failure. Never regex/return
+        # that as a plan — treat it (and any empty response) as failure so parse_tasks doesn't crash.
+        if not rsp or str(rsp).startswith("**ERROR**"):
+            return None
+
         match = re.search(r'<json>(.*?)</json>', rsp, re.DOTALL)
         if match:
             code = match.group(1)
@@ -34,8 +39,8 @@ class WritePlan(BaseModel):
             kb_name=Configs.kb_config.kb_name,
             kb_query=task_result.instruction
         )
-        if rsp == "":
-            return rsp
+        if not rsp or str(rsp).startswith("**ERROR**"):
+            return None
 
         match = re.search(r'<json>(.*?)</json>', rsp, re.DOTALL)
         if match:
@@ -44,6 +49,10 @@ class WritePlan(BaseModel):
 
 
 def parse_tasks(response: str, current_plan: Plan):
+    # WritePlan.run returns None when the LLM failed or emitted no <json>. Fail with a clear
+    # message instead of the opaque "json object must be str...not NoneType" from json.loads(None).
+    if not response:
+        raise ValueError("planner returned no task JSON")
     response = json.loads(response)
 
     tasks = import_tasks_from_json(current_plan.id, response)

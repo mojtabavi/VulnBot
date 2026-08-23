@@ -45,6 +45,9 @@ class BasicConfig(BaseFileSettings):
         "port": 22,
         "username": "root",
         "password": "root",
+        # Path to an SSH private key (repo-relative or absolute). When set + present, ShellManager
+        # uses key auth (docker lab: kali trusts the agent key); blank = fall back to password auth.
+        "key_filename": "",
     }
 
     default_bind_host: str = "0.0.0.0" if sys.platform != "win32" else "127.0.0.1"
@@ -130,6 +133,7 @@ class LLMConfig(BaseFileSettings):
     auth_mode: str = "api_key"  # "api_key" | "oauth" | "none"; oauth = Claude Pro/Max subscription
     auth_token: str = ""  # OAuth bearer token (subscription); empty for api_key auth
     max_tokens: int = 4096  # required by the Anthropic Messages API (native client)
+    thinking_level: str = "off"  # Anthropic extended thinking: off|low|medium|high (see chat.py THINKING_BUDGETS)
     embedding_models: str = "maidalun1020/bce-embedding-base_v1"
     embedding_type: str = "local"
     context_length: int = 120000

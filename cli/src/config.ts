@@ -15,14 +15,18 @@ export const REPO_ROOT = process.env.PENTEST_ROOT
 const OCTOPUS_JSON = path.join(here, '..', '.octopus.json'); // cli/.octopus.json
 
 export type ExecutorMode = 'docker' | 'remote' | 'local';
+/** Where MySQL runs: 'docker' = the compose `mysql` service (octopus starts it); 'local' = the
+ *  user runs their own MySQL. Chosen once at setup, persisted, and used by the /run preflight. */
+export type MysqlMode = 'docker' | 'local';
 
 export interface OctopusPrefs {
   setupComplete: boolean;
   executorMode: ExecutorMode;
+  mysqlMode?: MysqlMode;
   model?: string;
 }
 
-const DEFAULT_PREFS: OctopusPrefs = { setupComplete: false, executorMode: 'docker' };
+const DEFAULT_PREFS: OctopusPrefs = { setupComplete: false, executorMode: 'docker', mysqlMode: 'docker' };
 
 // ── YAML helpers ─────────────────────────────────────────────────────────────
 function yamlPath(name: string): string {
@@ -68,6 +72,7 @@ export interface ModelSettings {
   model: string;
   auth_mode?: AuthMode; // 'api_key' | 'oauth' | 'none' (default 'api_key')
   auth_token?: string; // OAuth bearer (Claude Pro/Max); git-ignored at rest
+  thinking_level?: string; // Anthropic extended-thinking level id ('off'|'low'|'medium'|'high')
 }
 export function writeModelConfig(m: ModelSettings): void {
   const cfg = loadYaml('model_config.yaml');
@@ -78,6 +83,7 @@ export function writeModelConfig(m: ModelSettings): void {
   cfg.llm_model_name = m.model;
   cfg.auth_mode = m.auth_mode ?? 'api_key';
   cfg.auth_token = m.auth_token ?? '';
+  cfg.thinking_level = m.thinking_level ?? 'off';
   dumpYaml('model_config.yaml', cfg);
 }
 export function getModel(): string {
@@ -102,7 +108,14 @@ export function getModelConfig(): ModelSettings {
     model: c.llm_model_name ?? '',
     auth_mode: (c.auth_mode as AuthMode) ?? 'api_key',
     auth_token: c.auth_token ?? '',
+    thinking_level: c.thinking_level ?? 'off',
   };
+}
+/** Persist the Anthropic extended-thinking level (level id, honored by the Python backend). */
+export function setThinkingLevel(level: string): void {
+  const cfg = loadYaml('model_config.yaml');
+  cfg.thinking_level = level;
+  dumpYaml('model_config.yaml', cfg);
 }
 /** Persist an OAuth bearer (Claude Pro/Max) + flip auth_mode. Token plumbing filled in B6. */
 export function setAuthToken(token: string): void {
@@ -124,15 +137,25 @@ export function setModel(name: string): void {
   prefs.model = name;
   savePrefs(prefs);
 }
-/** /provider — repoint base_url/kind/auth to a named preset, keeping any current api_key. */
+/** /provider — repoint base_url/kind/auth to a named preset. When the provider actually
+ *  changes, wipe the previous provider's secrets (a qwen key can't auth Anthropic) and reset
+ *  auth_mode to the new provider's default; a re-select of the same provider keeps the key. */
 export function setProvider(id: string): boolean {
   const p = getProvider(id);
   if (!p) return false;
   const cfg = loadYaml('model_config.yaml');
+  const changed = cfg.llm_provider !== p.id;
   cfg.llm_model = p.kind;
   cfg.llm_provider = p.id;
   if (p.baseUrl) cfg.base_url = p.baseUrl;
-  cfg.auth_mode = cfg.auth_mode ?? p.authModes[0];
+  if (changed) {
+    cfg.api_key = '';
+    cfg.auth_token = '';
+    cfg.auth_mode = p.authModes[0];
+    cfg.llm_model_name = ''; // force re-pick; a model id is provider-specific
+  } else {
+    cfg.auth_mode = cfg.auth_mode ?? p.authModes[0];
+  }
   dumpYaml('model_config.yaml', cfg);
   return true;
 }
@@ -143,14 +166,54 @@ export interface KaliSettings {
   port: number;
   username: string;
   password?: string;
+  /** SSH private-key path (repo-relative or absolute). Set for the docker lab (key auth); the
+   *  Python ShellManager uses it when present, else falls back to password. */
+  key_filename?: string;
 }
 export function writeKaliConfig(k: KaliSettings, mode: ExecutorMode): void {
   const cfg = loadYaml('basic_config.yaml');
-  cfg.kali = { hostname: k.hostname, port: k.port, username: k.username, password: k.password ?? '' };
+  cfg.kali = {
+    hostname: k.hostname,
+    port: k.port,
+    username: k.username,
+    password: k.password ?? '',
+    key_filename: k.key_filename ?? '',
+  };
   if (mode !== 'local') cfg.mode = cfg.mode ?? 'auto';
   dumpYaml('basic_config.yaml', cfg);
 }
 export function getKali(): KaliSettings | null {
   const k = loadYaml('basic_config.yaml').kali;
-  return k ? { hostname: k.hostname, port: k.port, username: k.username, password: k.password } : null;
+  return k
+    ? { hostname: k.hostname, port: k.port, username: k.username, password: k.password, key_filename: k.key_filename ?? '' }
+    : null;
+}
+
+// ── db_config.yaml (MySQL) ───────────────────────────────────────────────────
+export interface DbSettings {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database: string;
+}
+/** Defaults match .env.example / the mysql compose service, so the docker path works out of the box. */
+export const DEFAULT_DB: DbSettings = {
+  host: '127.0.0.1', port: 3306, user: 'vulnbot', password: 'vulnbot', database: 'vulnbot',
+};
+export function writeDbConfig(db: DbSettings): void {
+  const cfg = loadYaml('db_config.yaml');
+  cfg.mysql = { host: db.host, port: db.port, user: db.user, password: db.password, database: db.database };
+  dumpYaml('db_config.yaml', cfg);
+}
+/** Current MySQL host/port/etc (backfills from DEFAULT_DB so the /run preflight always has a target). */
+export function getDbConfig(): DbSettings {
+  const m = loadYaml('db_config.yaml').mysql ?? {};
+  return {
+    host: m.host || DEFAULT_DB.host,
+    port: Number(m.port) || DEFAULT_DB.port,
+    user: m.user || DEFAULT_DB.user,
+    password: m.password ?? DEFAULT_DB.password,
+    database: m.database || DEFAULT_DB.database,
+  };
 }

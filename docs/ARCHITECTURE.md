@@ -1,8 +1,8 @@
 # VulnBot — Architecture Reference
 
-![VulnBot current architecture & data flow](docs/project_schematic.png)
+![VulnBot current architecture & data flow](project_schematic.png)
 
-*Source: [`project_schematic.excalidraw`](project_schematic.excalidraw) — gray = current
+*Source: [`../project_schematic.excalidraw`](../project_schematic.excalidraw) — gray = current
 modules, orange = future belief-state attachment points (placeholders only).*
 
 Documentation-only reference for the forked **VulnBot** framework (arXiv 2501.13411).

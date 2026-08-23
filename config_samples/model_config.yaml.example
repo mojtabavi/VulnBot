@@ -17,6 +17,7 @@
 #   ollama      llm_model: ollama, base_url: http://127.0.0.1:11434
 #   anthropic   llm_model: anthropic, base_url: https://api.anthropic.com  (NO /v1 — SDK adds it)
 #               API key -> auth_mode: api_key;  Pro/Max subscription -> auth_mode: oauth + auth_token
+#   thinking_level: Anthropic extended thinking — off | low | medium | high (native only; others ignore it)
 
 api_key: "sk-REPLACE_ME"
 llm_model: openai
@@ -26,6 +27,7 @@ llm_model_name: "deepseek-r1:7b"
 auth_mode: api_key
 auth_token: ""
 max_tokens: 4096
+thinking_level: off   # Anthropic only: off|low|medium|high
 
 # Embedding / rerank (only used when enable_rag: true)
 embedding_models: "maidalun1020/bce-embedding-base_v1"

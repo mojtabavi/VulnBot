@@ -3,11 +3,13 @@ import { Box, Text } from 'ink';
 import { beliefView } from '../belief.js';
 
 const WIDTH = 12;
-function bar(p: number): string {
-  const n = Math.round(Math.max(0, Math.min(1, p)) * WIDTH);
-  return '▇'.repeat(n) + '▁'.repeat(WIDTH - n);
+/** A 12-cell filled/empty probability bar. Exported so the live RunView belief panel matches. */
+export function bar(p: number, width: number = WIDTH): string {
+  const n = Math.round(Math.max(0, Math.min(1, p)) * width);
+  return '▇'.repeat(n) + '▁'.repeat(width - n);
 }
-function color(p: number): string {
+/** Probability → Ink color (green confident / yellow uncertain / gray low). */
+export function color(p: number): string {
   if (p >= 0.6) return 'green';
   if (p >= 0.3) return 'yellow';
   return 'gray';

@@ -30,7 +30,7 @@ VulnBot is an advanced automated penetration testing framework that utilizes Lar
 
 Current module layout and data flow. Gray = original VulnBot modules; blue = belief-state layer
 implemented in this fork (`pomdp/`); orange = remaining future work. Full write-up in
-[`ARCHITECTURE.md`](ARCHITECTURE.md); editable source in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); editable source in
 [`project_schematic.excalidraw`](project_schematic.excalidraw).
 
 ![VulnBot current architecture & data flow](docs/project_schematic.png)
@@ -38,7 +38,7 @@ implemented in this fork (`pomdp/`); orange = remaining future work. Full write-
 ### Dockerized lab (this fork)
 
 This fork runs the whole lab in `docker compose` on an **isolated** network (no internet on
-the attack path). See [`INFRA.md`](INFRA.md) for details.
+the attack path). See [`docs/INFRA.md`](docs/INFRA.md) for details.
 
 ```powershell
 cp .env.example .env         # fill MSF_RPC_PASSWORD, AGENT_SSH_PUBKEY, LLM backend/keys
@@ -54,7 +54,7 @@ cp .env.example .env         # fill MSF_RPC_PASSWORD, AGENT_SSH_PUBKEY, LLM back
 The explicit-belief-state layer (`pomdp/belief_state.py`, `belief_store.py`, `priors.py`) is
 implemented (Phase 2.1–2.5: Belief Store, LLM-likelihood soft-Bayes Updater, belief-conditioned
 policy π, and reward R + offline CVSS priors); only the top-level `run_agent` control loop is
-stubbed. Described in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+stubbed. Described in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ---
 
@@ -107,6 +107,12 @@ Before using VulnBot, initialize the project:
 ```sh
 python cli.py init
 ```
+
+**MySQL is required** (sessions/plans/tasks/conversations/messages). With the **octopus** CLI you
+choose once at setup where MySQL runs — a **docker** container it manages (compose `mysql` service,
+profile `data`) or your **local** install — and `/run` preflights it, auto-starting + creating tables
+in docker mode. To create the tables directly without the RAG stack: `python pentest.py --init-db`.
+See [docs/INFRA.md](docs/INFRA.md#mysql-provisioning-local-vs-docker).
 
 ### Start the RAG Module
 

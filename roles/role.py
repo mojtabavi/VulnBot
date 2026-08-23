@@ -10,6 +10,7 @@ from db.repository.task_repository import add_task_to_plan
 from prompts.prompt import DeepPentestPrompt
 from server.chat.chat import _chat
 from utils.log_common import build_logger
+from utils.progress import emit
 
 logger = build_logger()
 
@@ -24,6 +25,7 @@ class Role(BaseModel):
     chat_counter: int = 0
     plan_chat_id: str = ""
     react_chat_id: str = ""
+    plan_error: str = ""  # real reason planning failed (e.g. the LLM 429), surfaced to the CLI
     console: Any = None
 
     def get_summary(self, history_planner_ids):
@@ -31,6 +33,11 @@ class Role(BaseModel):
         return self.previous_summary.get_summary()
 
     def put_message(self, message):
+        # Guard: if planning never produced a plan (e.g. a dead DB/LLM aborted _plan), there is
+        # nothing to persist. Deref-ing current_plan.tasks here is what turned one failure into a
+        # confusing cascade, so bail out quietly instead.
+        if self.planner.current_plan is None:
+            return
         add_task_to_plan(self.planner.current_plan.tasks)
         # To be implemented in each subclass
         pass
@@ -112,10 +119,39 @@ class Role(BaseModel):
                 return None
             actions = [self._task_to_action_for(t) for t in ready_tasks]
             chosen = choose_action(actions, b)
+            self._emit_decision(chosen)  # human-friendly "why this task" line in the CLI
             return ready_tasks[actions.index(chosen)]
         except Exception as e:  # noqa: BLE001 - belief is auxiliary, never fatal
             logger.warning(f"belief task selection skipped: {e}")
             return None
+
+    def _emit_decision(self, action):
+        """Stream the policy's pick (π) as a `decision` marker so the CLI can show, in plain
+        language, WHY the agent chose this next action — recon to resolve uncertainty (info-gain)
+        vs. exploit because the belief says it will pay off. Carries only the chosen action label,
+        never hidden state S. Best-effort: a failure here must never break a run."""
+        try:
+            mode = "recon" if getattr(action, "type", "") == "recon" else "exploit"
+            emit("decision", phase=self.name, mode=mode,
+                 action=f"{getattr(action, 'type', '?')}:{getattr(action, 'name', '')}"[:60])
+        except Exception:  # noqa: BLE001 - progress emission is auxiliary, never fatal
+            pass
+
+    def _emit_belief(self, b):
+        """Stream the just-updated belief factor as a `belief` marker so the CLI renders the POMDP
+        posterior as human-friendly probability bars (not raw JSON). This is the agent's belief —
+        its information-state (the posterior over S) — which the thesis exists to surface; it is
+        NOT the hidden true state S. Best-effort: a failure here must never break a run."""
+        try:
+            lu = (b.get("meta") or {}).get("last_update") or {}
+            post = lu.get("posterior") or {}
+            # encode the distribution as `hyp:prob,hyp:prob` (marker-safe, no `|`)
+            dist = ",".join(f"{h}:{float(p):.2f}" for h, p in post.items())
+            emit("belief", phase=self.name, step=b.get("step", 0),
+                 host=lu.get("host", "?"), factor=lu.get("factor", "?"),
+                 key=lu.get("key") or "", action=lu.get("action", "?"), dist=dist)
+        except Exception:  # noqa: BLE001 - progress emission is auxiliary, never fatal
+            pass
 
     def _belief_persist(self, observation=""):
         """Belief Updater hook: run the observation O through the soft Bayesian update."""
@@ -132,13 +168,32 @@ class Role(BaseModel):
             action = self._task_to_action()
             b = update_belief(b, action, observation, llm=self._belief_llm, samples=1)
             store.save(b)
+            self._emit_belief(b)  # surface the updated posterior in the CLI as friendly bars
             logger.info(f"belief updated -> step {b.get('step')}")
         except Exception as e:  # noqa: BLE001 - belief is auxiliary, never fatal
             logger.warning(f"belief persist skipped: {e}")
 
+    def _emit_tasks(self):
+        """Stream the current PTG as `task` markers so the CLI can render a live todo checklist.
+        Best-effort (belief-style): a formatting/attr error here must never break a run, and the
+        markers carry only task boundaries/status — never hidden state S."""
+        try:
+            tasks = getattr(self.planner.current_plan, "tasks", None) or []
+            for t in tasks:
+                emit("task", phase=self.name,
+                     seq=getattr(t, "sequence", ""),
+                     done=int(bool(getattr(t, "is_finished", False))),
+                     ok=int(bool(getattr(t, "is_success", False))),
+                     instr=(getattr(t, "instruction", "") or "")[:80])
+        except Exception:  # noqa: BLE001 - progress emission is auxiliary, never fatal
+            pass
+
     def _react(self, next_task):
         try:
             self.chat_counter += 1
+            cur = getattr(self.planner.current_plan, "current_task", None)
+            emit("step", phase=self.name, seq=getattr(cur, "sequence", self.chat_counter),
+                 instr=(getattr(cur, "instruction", "") or "")[:80])
             writer = WriteCode(next_task=next_task, action=self.planner.current_plan.current_task.action)
             result = writer.run()
             self.console.print("---------- Execute Result ---------", style="bold green")
@@ -152,8 +207,11 @@ class Role(BaseModel):
                 logger.info(f"result summary: {response}")
                 result.response = response
 
-            return self.planner.update_plan(result.response)
+            next_task = self.planner.update_plan(result.response)
+            self._emit_tasks()  # refresh the checklist: update_plan flipped status / merged nodes
+            return next_task
         except Exception as e:
+            emit("error", phase=self.name, msg=str(e))
             print(e)
             print(traceback.format_exc())
 
@@ -164,14 +222,23 @@ class Role(BaseModel):
             with self.console.status("[bold green] Initializing DeepPentest Sessions...") as status:
                 try:
                     context = self.get_summary(session.history_planner_ids)
-                    (text_0, self.plan_chat_id) = _chat(
+                    # _chat returns (text, chat_id) on success but a bare error *string* on failure;
+                    # unpacking that string is what raised "too many values to unpack". Validate first.
+                    r0 = _chat(
                         query=self.prompt.init_plan_prompt.format(init_description=session.init_description,
                                                                   goal=self.goal,
                                                                   tools=self.tools,
                                                                   context=context)
                     )
-                    (text_1, self.react_chat_id) = _chat(query=self.prompt.init_reasoning_prompt)
+                    if not isinstance(r0, tuple):
+                        raise RuntimeError(str(r0))
+                    (text_0, self.plan_chat_id) = r0
+                    r1 = _chat(query=self.prompt.init_reasoning_prompt)
+                    if not isinstance(r1, tuple):
+                        raise RuntimeError(str(r1))
+                    (text_1, self.react_chat_id) = r1
                 except Exception as e:
+                    self.plan_error = str(e)  # real cause (e.g. the LLM 429), surfaced to the CLI
                     self.console.print(f"Failed to initialize chat sessions: {e}", style="bold red")
                     return None
             plan = Plan(goal=self.goal, plan_chat_id=self.plan_chat_id, react_chat_id=self.react_chat_id, current_task_sequence=0)
@@ -185,9 +252,25 @@ class Role(BaseModel):
         return self.planner.plan()
 
     def run(self, session):
+        emit("phase", name=self.name)
         next_task = self._plan(session)
+        # _plan returns None and leaves current_plan unset when session init fails (dead DB/LLM).
+        # Abort cleanly here rather than entering the react loop with a null plan (which used to
+        # raise 'NoneType has no attribute current_task' / 'tasks').
+        if self.planner.current_plan is None:
+            reason = self.plan_error or "planning failed (no plan created)"
+            emit("error", phase=self.name, msg=reason)
+            emit("phase_done", name=self.name)
+            self.console.print(
+                f"Aborting run: planning failed - {reason}. Check MySQL/LLM connectivity.",
+                style="bold red",
+            )
+            return
+        emit("plan", phase=self.name, tasks=len(getattr(self.planner.current_plan, "tasks", []) or []))
+        self._emit_tasks()  # seed the CLI todo checklist with the initial PTG
         while self.chat_counter < self.max_interactions:
             next_task = self._react(next_task)
             if next_task is None:
                 break
+        emit("phase_done", name=self.name)
         self.put_message(session)

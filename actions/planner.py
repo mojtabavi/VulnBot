@@ -1,3 +1,4 @@
+import json
 from typing import Any, Callable, List, Optional
 
 from pydantic import BaseModel
@@ -29,7 +30,14 @@ class Planner(BaseModel):
 
         logger.info(f"plan: {response}")
 
-        self.current_plan = parse_tasks(response, self.current_plan)
+        try:
+            self.current_plan = parse_tasks(response, self.current_plan)
+        except (ValueError, json.JSONDecodeError) as e:
+            # No usable task JSON (dead/unsupported LLM). Null the plan so Role.run's guard aborts
+            # cleanly with one message, instead of crashing on json.loads / a null current_task.
+            logger.error(f"planning failed: {e}")
+            self.current_plan = None
+            return None
 
         next_task = self.next_task_details()
 
