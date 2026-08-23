@@ -32,6 +32,27 @@ The paper's conceptual modules map onto the code as follows:
 | Summarizer          | `actions/plan_summary.py::PlannerSummary` + `summary_result`/`check_success` prompts |
 | Penetration Task Graph (PTG) | `db/models/plan_model.py::Plan` + `db/models/task_model.py::Task` (dependency DAG, topological sort) |
 
+### 1.1 R1–R4 hardening (this fork) — shared-contract foundations (TL-0 done)
+
+On top of the belief layer, an in-progress pass turns the agent into a fully interactive POMDP
+(details: `docs/POMDP_INTEGRATION.md`, `docs/EXECUTOR.md`, plan `~/.claude/plans/…joyful-scroll.md`).
+TL-0 landed the shared contracts every later piece builds on:
+
+| Contract | Module | Serves | Role |
+|----------|--------|--------|------|
+| Observation schema | `pomdp/observation.py` | R3 + R4 | the ONE normalized result every Executor channel returns; `raw` = observation O for the Updater; `to_dict()` = the `observation` event record |
+| JSON event log | `utils/events.py` | R4 | `EventLog(run_id)` appends one JSON record per event to `data/runs/<id>/events.jsonl` (the on-disk source of truth the Ink `LogView` tails) + a compact `##OCTO##` marker mirror |
+| Control channel | `utils/control.py` | R2 | loopback socket for CLI↔agent human-in-the-loop (approve/deny/pause/step/quit); announces its port via `##OCTO## control|port=N` |
+
+**Process boundary — three clean lanes** (so the Node/Ink front-end and the Python agent stay decoupled):
+1. **Live (Py→CLI):** `##OCTO##` stdout markers — the RunView ticker (phase/step/belief/decision/wait).
+2. **Truth (Py→disk→CLI):** `events.jsonl` — full JSON records; the LogView tails the file.
+3. **Control (CLI↔Py):** the loopback socket — HITL only.
+
+Still to come: the Executor channels/router (R3, TL-1), the standalone `BeliefAgent` loop that wires
+`choose_action → executor.run → update_belief → persist` (R1, TL-2), JSON-logging throughout (R4, TL-3),
+and the Ink HITL + LogView (R2/R4, TL-4/5).
+
 ---
 
 ## 2. Module Roles, Inputs & Outputs

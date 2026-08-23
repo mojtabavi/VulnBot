@@ -116,8 +116,8 @@ def title(x, y, text, size, color):
 W, H = 232, 88
 # ---- titles ----
 title(60, 20, "VulnBot — Architecture & Data Flow", 28, GRAY_STROKE)
-title(60, 56, "Gray = current VulnBot modules   |   Blue = implemented this fork (Docker lab / POMDP belief layer 2.1-2.5 / octopus CLI)", 14, IMPL_STROKE)
-title(60, 76, "Orange = remaining future work (only the run_agent top-level loop, wired during eval)", 14, FUT_STROKE)
+title(60, 56, "Gray = current VulnBot modules   |   Blue = implemented this fork (Docker lab / POMDP belief 2.1-2.5 / octopus CLI / R1-R4 TL-0 contracts)", 14, IMPL_STROKE)
+title(60, 76, "Orange = remaining R1-R4 work (Executor channels R3, standalone BeliefAgent loop R1, JSON logging R4, Ink HITL+LogView R2/R4)", 14, FUT_STROKE)
 
 # ---- current nodes ----
 node("user",     60,  120, W, H, "User / Session\n(init_description,\ntarget IP)")
@@ -143,8 +143,16 @@ node("priors", 340, 640, W, H, "priors.py [2.5]\nCVSS+maturity -> R\nvalue/cost/
 node("bcp", 620, 120, W, H, "Belief-Cond. Planner [2.4]\nchoose_action: info-gain\nvs exploit-value (pi)", scaffold=True)
 # Octopus CLI front-end (Phase 4.1a): setup wizard, /model swap, belief view.
 node("cli", 60, 640, W, H, "octopus CLI (Ink) [4.1a]\nsetup, /model, belief view\n(cli/)", scaffold=True)
-# Remaining future work: the top-level control loop.
-node("runagent", 900, 120, W, H, "run_agent [stub]\ntop-level POMDP loop\n(eval driver)", future=True)
+# Remaining future work: the standalone belief-agent control loop (R1, TL-2).
+node("runagent", 900, 120, W, H, "run_agent -> BeliefAgent\nstandalone POMDP loop\n(pomdp/agent.py) [R1 TL-2]", future=True)
+
+# ---- R1-R4 hardening: TL-0 shared contracts (blue, done) ----
+node("obs",     900, 470, W, H, "observation.py [TL-0]\nunified Observation O\n(R3+R4 schema)", scaffold=True)
+node("events",   60, 780, W, H, "events.py [TL-0]\nJSONL event log (R4)\ndata/runs/*.jsonl", scaffold=True)
+node("control", 340, 780, W, H, "control.py [TL-0]\nloopback HITL socket\n(R2 back-channel)", scaffold=True)
+# ---- R1-R4 remaining lanes (orange placeholders) ----
+node("executor",1180, 780, W, H, "Executor + channels\nSSH/msfrpc/MCP + router\n(executor/) [R3 TL-1]", future=True)
+node("logview",  620, 780, W, H, "octopus LogView + HITL\ntails jsonl, approve/deny\n(cli/) [R2/R4 TL-4/5]", future=True)
 
 # ---- main data flow (solid gray) ----
 arrow("user", "b", "roles", "t", label="session")
@@ -176,8 +184,17 @@ arrow("bcp", "b", "planner", "t", dashed=True, color=IMPL_STROKE, label="task_se
 arrow("cli", "t", "user", "b", dashed=True, color=IMPL_STROKE, label="launch/setup")
 arrow("cli", "r", "bs", "b", dashed=True, color=IMPL_STROKE, label="reads b")
 
-# ---- remaining future work (dashed orange) ----
+# ---- R1-R4 TL-0 shared-contract wiring (blue) ----
+arrow("obs", "l", "bstate", "r", dashed=True, color=IMPL_STROKE, label="O")
+arrow("cli", "b", "events", "t", dashed=True, color=IMPL_STROKE, label="LogView tails")
+arrow("control", "t", "cli", "b", dashed=True, color=IMPL_STROKE, label="HITL socket")
+arrow("events", "r", "control", "l", dashed=True, color=IMPL_STROKE)
+
+# ---- R1-R4 remaining lanes (dashed orange) ----
 arrow("runagent", "b", "roles", "t", dashed=True, color=FUT_STROKE, label="drives loop")
+arrow("executor", "t", "exec", "b", dashed=True, color=FUT_STROKE, label="run(action)->O")
+arrow("obs", "r", "executor", "l", dashed=True, color=FUT_STROKE, label="normalizes")
+arrow("logview", "t", "events", "r", dashed=True, color=FUT_STROKE, label="renders")
 
 doc = {
     "type": "excalidraw",
