@@ -42,3 +42,4 @@ docker/agent/keys/
 # skullbot Ink CLI
 cli/node_modules/
 cli/.octopus.json
+cli/.octopus-auth.json

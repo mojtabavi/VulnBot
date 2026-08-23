@@ -308,31 +308,41 @@ containerized Kali tooling host instead of a host-local machine. Authoritative d
 - Secrets in `.env`; Kali apt mirror pinned via `KALI_MIRROR_HOST` (default mirror 403s in some
   regions).
 
-## 7B. Belief layer (Phase 2.1–2.2 — this fork)
+## 7B. Belief layer (Phase 2.1–2.5 — this fork)
 
-The POMDP belief-state (observation model implemented in 2.2; reward/policy still stubbed; see §8):
+The POMDP belief-state. 2.1–2.5 are implemented; only `run_agent` (top-level control loop, wired
+during eval) is still stubbed. See §8 for attach points.
 
 - **`pomdp/belief_state.py`** — the factored-JSON belief `b` over hidden state S (per host: `os`,
   `services`, `vulns`, `access`, `honeypot_likelihood`). `new_belief`/`new_host_prior`/
   `add_host` build conventional b0 priors (uniform OS with mass on `unknown`); `Action` +
-  `GAMMA` defined. **`update_belief` (2.2)** is implemented — LLM-likelihood (Z) soft Bayesian
-  update via `Z_PROMPT_TEMPLATE`, code-normalized, ε-floored (soft). `score_action` (R),
-  `choose_action` (π), `run_agent` remain **`NotImplementedError`** (2.4–2.5) or replaced by the
-  author's file with the same names. **Never branches on S.**
+  `GAMMA` defined. **`update_belief` (2.2)** — LLM-likelihood (Z) soft Bayesian update via
+  `Z_PROMPT_TEMPLATE`, code-normalized, ε-floored (soft). **`choose_action` (2.4, π)** — argmax
+  utility: RECON valued by normalized entropy (info-gain) of the probed factor, EXPLOIT/LATERAL/
+  PRIVESC by R. **`score_action` (2.5, R)** — `P(succeeds|b)·value − cost − detection`.
+  `run_agent` remains **`NotImplementedError`** (top-level loop) or replaced by the author's file
+  with the same names. **Never branches on S.**
+- **`pomdp/priors.py` (2.5)** — stdlib-only, **offline** reward-priors source: CVSS +
+  exploit-maturity → `value`/`cost`/`detection_risk` + b0 `vuln_prior_present`. Built-in CVE
+  catalog + optional git-ignored `data/priors/exploit_catalog.json` override; `enrich_action`,
+  `seed_vuln_priors`, `merge_catalog` (RAG-enrichment hook — no network, no eager `rag/` import).
 - **`pomdp/belief_store.py`** — stdlib-only per-run JSON **Belief Store** under
   `data/beliefs/<run_id>/` (`save`/`load_latest`/`load_step`/`steps`/`history`); one file per
   step forms the belief trace.
 - **`roles/role.py`** — guarded, best-effort hooks: `_belief_init` (in `_plan`) instantiates b;
-  `_belief_persist` (in `_react`) saves it each step, keyed by plan id. A belief failure never
-  breaks a run.
+  `_belief_persist` (in `_react`, the Updater) saves it each step; `_belief_choose_next` (the
+  policy, set as `Planner.task_selector`) picks among dependency-ready PTG tasks;
+  `_task_to_action_for` maps a task → `Action` and enriches its R inputs via `priors.enrich_action`.
+  A belief failure never breaks a run; `VULNBOT_BELIEF_POLICY=0` disables belief-driven task
+  selection (ablation).
 
 ---
 
 ## 8. Integration Points
 
-> Attachment locations for the three belief-state modules. **Belief Store is implemented
-> (Phase 2.1)**; Updater and Planner are future work (their belief math is stubbed in
-> `pomdp/belief_state.py`).
+> Attachment locations for the belief-state modules. **All four are implemented**
+> (Belief Store 2.1, Updater 2.2, Belief-Conditioned Planner 2.4, Reward+priors 2.5); only the
+> top-level `run_agent` control loop is still stubbed in `pomdp/belief_state.py`.
 
 ### 8.1 Summarizer → **Belief Updater**  *(DONE — Phase 2.2)*
 - **Where:** `roles/role.py::Role._belief_persist` (called from `_react` with the observation O)
@@ -351,14 +361,24 @@ The POMDP belief-state (observation model implemented in 2.2; reward/policy stil
   plan id, one snapshot per step (the belief trace). The belief *content* it stores comes from
   `pomdp/belief_state.py`; the update that changes that content lands in 2.2.
 
-### 8.3 Planner → **Belief-Conditioned Planner**  *(future — Phase 2.4)*
-- **Where:** `actions/planner.py::Planner.plan` / `update_plan` / `next_task_details` and
-  the task ordering in `actions/write_plan.py` (`merge_tasks` / PTG topological order in
-  `db/models/plan_model.py`).
-- **Why here:** this is where the next action/task is selected and ordered. A
-  belief-conditioned planner would score candidate actions by information-gain vs.
-  exploit-value using the current belief, replacing or augmenting the current
-  LLM-emitted task ordering.
+### 8.3 Planner → **Belief-Conditioned Planner**  *(DONE — Phase 2.4)*
+- **Where:** `pomdp/belief_state.py::choose_action` (policy π) drives the PTG pick via
+  `db/models/plan_model.py::Plan.ready_tasks` (dependency-ready frontier) +
+  `actions/planner.py::Planner.task_selector` (optional callable, guarded in `next_task_details`,
+  falls back to the deterministic topo pick on any failure) + `roles/role.py::_belief_choose_next`
+  (set in `_plan`).
+- **How:** among dependency-ready tasks, π scores candidate actions by **information-gain**
+  (normalized entropy of the factor a recon probes) vs. **exploit-value** (`score_action`'s R),
+  argmax. `VULNBOT_BELIEF_POLICY=0` disables it (the free with/without-belief ablation).
+
+### 8.4 Reward + priors → **`score_action` + `pomdp/priors.py`**  *(DONE — Phase 2.5)*
+- **Where:** `pomdp/belief_state.py::score_action` (R = `P(succeeds|b)·value − cost − detection`)
+  fed by `pomdp/priors.py`; `roles/role.py::_task_to_action_for` calls `priors.enrich_action` to
+  fill `value`/`cost`/`detection_risk`, and `priors.seed_vuln_priors` seeds b0 vuln priors.
+- **How:** `pomdp/priors.py` is a stdlib-only, **offline** CVSS/exploit-maturity source (built-in
+  CVE catalog + optional git-ignored `data/priors/exploit_catalog.json`; `merge_catalog` is a
+  later RAG-enrichment hook, no network, no eager `rag/` import). Host `honeypot_likelihood` feeds
+  the detection term, so the policy steers away from suspected honeypots.
 
 ---
 

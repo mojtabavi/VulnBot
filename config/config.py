@@ -124,8 +124,12 @@ class LLMConfig(BaseFileSettings):
 
     api_key: str = ""
     llm_model: str = "openai"
+    llm_provider: str = "openai"  # named provider preset (display + /models endpoint; see cli/src/providers.ts)
     base_url: str = ""
     llm_model_name: str = ""
+    auth_mode: str = "api_key"  # "api_key" | "oauth" | "none"; oauth = Claude Pro/Max subscription
+    auth_token: str = ""  # OAuth bearer token (subscription); empty for api_key auth
+    max_tokens: int = 4096  # required by the Anthropic Messages API (native client)
     embedding_models: str = "maidalun1020/bce-embedding-base_v1"
     embedding_type: str = "local"
     context_length: int = 120000

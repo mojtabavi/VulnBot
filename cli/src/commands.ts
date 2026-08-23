@@ -1,5 +1,6 @@
 /** Slash-command handler for the REPL. Returns lines to print and an optional UI action. */
-import { getModel, setModel, loadPrefs } from './config.js';
+import { getModel, setModel, loadPrefs, getModelConfig, setProvider } from './config.js';
+import { getProvider, listProviders } from './providers.js';
 import { labUp, labDown, labStatus, smoke, dockerAvailable } from './executor.js';
 import { formatBelief } from './belief.js';
 
@@ -13,8 +14,10 @@ export interface CommandSpec {
 export const COMMANDS: CommandSpec[] = [
   { name: 'help', args: '', help: 'show this help' },
   { name: 'setup', args: '', help: 're-run the first-time setup wizard' },
-  { name: 'model', args: '[name]', help: 'show or switch the active LLM model' },
-  { name: 'status', args: '', help: 'executor mode, model, lab status' },
+  { name: 'provider', args: '[id]', help: 'switch LLM provider (no arg = picker)' },
+  { name: 'model', args: '[name]', help: 'pick/switch the active LLM model (no arg = live picker)' },
+  { name: 'login', args: '', help: 'Claude Pro/Max subscription sign-in (OAuth)' },
+  { name: 'status', args: '', help: 'provider, auth, model, executor, lab status' },
   { name: 'lab', args: 'up|down|smoke', help: 'control / test the Docker lab' },
   { name: 'belief', args: '[run]', help: 'show the latest belief trace' },
   { name: 'run', args: '[target]', help: 'start an assessment (interim: validates channel)' },
@@ -24,7 +27,7 @@ export const COMMANDS: CommandSpec[] = [
 
 export interface CommandResult {
   lines: string[];
-  action?: 'quit' | 'setup' | 'clear';
+  action?: 'quit' | 'setup' | 'clear' | 'pick-model' | 'pick-provider' | 'login';
 }
 
 /** Whether a command is slow (async work → show a spinner) and its verb label. */
@@ -37,6 +40,11 @@ export function commandMeta(input: string): { slow: boolean; label: string } {
   if (cmd === 'run') return { slow: true, label: 'Processing…' };
   if (cmd === 'status') return { slow: true, label: 'Checking status…' };
   return { slow: false, label: 'Working…' };
+}
+
+/** Label the REPL shows while it fetches a model catalog for an overlay picker. */
+export function fetchingLabel(): string {
+  return `Fetching ${getProvider(getModelConfig().provider)?.label ?? 'provider'} models…`;
 }
 
 export async function handleCommand(input: string): Promise<CommandResult> {
@@ -62,14 +70,43 @@ export async function handleCommand(input: string): Promise<CommandResult> {
       return { lines: ['bye.'], action: 'quit' };
 
     case 'model': {
-      if (args.length === 0) return { lines: [`model: ${getModel()}   (usage: /model <name>)`] };
+      // no arg → interactive live picker (Repl fetches the catalog + opens an overlay).
+      if (args.length === 0) return { lines: [], action: 'pick-model' };
       setModel(args[0]);
       return { lines: [`model switched -> ${args[0]} (model_config.yaml updated; hot-reloaded on next call)`] };
     }
 
+    case 'provider': {
+      // no arg → provider picker overlay; <id> → switch directly.
+      if (args.length === 0) return { lines: [], action: 'pick-provider' };
+      const id = args[0];
+      if (!getProvider(id)) {
+        const known = listProviders().map((p) => p.id).join(', ');
+        return { lines: [`unknown provider: ${id}`, `known: ${known}`] };
+      }
+      setProvider(id);
+      const p = getProvider(id)!;
+      const lines = [`provider -> ${p.label} (base_url ${p.baseUrl || '(custom)'})`];
+      if (p.authModes[0] !== 'none') lines.push('set the key with /login (oauth) or re-run /setup; then /model to pick a model.');
+      else lines.push('local provider — no key needed; /model to pick a model.');
+      return { lines };
+    }
+
+    case 'login':
+      // Claude Pro/Max OAuth — the flow itself lands in B6; Repl owns the browser step.
+      return { lines: [], action: 'login' };
+
     case 'status': {
       const prefs = loadPrefs();
-      const lines = [`executor: ${prefs.executorMode}`, `model:    ${getModel()}`];
+      const c = getModelConfig();
+      const p = getProvider(c.provider);
+      const lines = [
+        `provider: ${p?.label ?? c.provider}  (${c.kind})`,
+        `auth:     ${c.auth_mode === 'oauth' ? 'subscription (Claude Pro/Max)' : c.auth_mode}`,
+        `model:    ${c.model || '(unset)'}`,
+        `base_url: ${c.base_url || '(unset)'}`,
+        `executor: ${prefs.executorMode}`,
+      ];
       if (prefs.executorMode === 'docker') lines.push('lab:', ...(await labStatus()).split('\n').map((l) => '  ' + l));
       return { lines };
     }

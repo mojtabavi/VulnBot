@@ -38,6 +38,7 @@ class ListResponse(BaseResponse):
 class LLMType(StrEnum):
     OPENAI = "openai"
     OLLAMA = "ollama"
+    ANTHROPIC = "anthropic"
 
     def __missing__(self, key):
         return self.OLLAMA

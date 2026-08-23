@@ -116,8 +116,8 @@ def title(x, y, text, size, color):
 W, H = 232, 88
 # ---- titles ----
 title(60, 20, "VulnBot — Architecture & Data Flow", 28, GRAY_STROKE)
-title(60, 56, "Gray = current VulnBot modules   |   Blue = implemented this fork (Docker lab / belief updater, Phase 0-2.2)", 14, IMPL_STROKE)
-title(60, 76, "Orange = FUTURE belief modules (attachment points; not yet implemented)", 14, FUT_STROKE)
+title(60, 56, "Gray = current VulnBot modules   |   Blue = implemented this fork (Docker lab / POMDP belief layer 2.1-2.5 / octopus CLI)", 14, IMPL_STROKE)
+title(60, 76, "Orange = remaining future work (only the run_agent top-level loop, wired during eval)", 14, FUT_STROKE)
 
 # ---- current nodes ----
 node("user",     60,  120, W, H, "User / Session\n(init_description,\ntarget IP)")
@@ -133,14 +133,18 @@ node("llm",     560,  560, 260, H, "LLM Layer  _chat\nOpenAI / Ollama\n(server/c
 node("mem",     900,  560, W, H, "Memory-Retriever\nRAG / Milvus + rerank\n(rag/)")
 node("db",      220,  560, W, H, "MySQL\nsessions/plans/tasks\nconversations/messages")
 
-# ---- belief nodes ----
-# Scaffolded now (Phase 2.1): belief data + Store persistence.
-node("bstate", 340, 470, W, H, "belief_state.py [2.1]\nb0 priors, Action, GAMMA\nupdate/score/choose = stub", scaffold=True)
+# ---- belief nodes (POMDP layer, Phase 2.1-2.5 implemented this fork) ----
+node("bstate", 340, 470, W, H, "belief_state.py [2.1-2.5]\nb, Action, GAMMA; update/\nchoose/score implemented", scaffold=True)
 node("bs",  620, 470, W, H, "Belief Store [2.1]\nbelief_store.py\ndata/beliefs/*.json", scaffold=True)
-# Belief Updater implemented in 2.2 (Z likelihoods + Bayes):
 node("bu",  60,  470, W, H, "Belief Updater [2.2]\nupdate_belief: LLM Z\n+ soft Bayes", scaffold=True)
-# Future (attachment point only):
-node("bcp", 620, 120, W, H, "Belief-Conditioned Planner\ninfo-gain vs exploit-value\n[future 2.4]", future=True)
+# Reward + priors (2.5): offline CVSS/maturity source feeding R.
+node("priors", 340, 640, W, H, "priors.py [2.5]\nCVSS+maturity -> R\nvalue/cost/detection", scaffold=True)
+# Belief-Conditioned Planner (2.4): policy pi drives the PTG pick.
+node("bcp", 620, 120, W, H, "Belief-Cond. Planner [2.4]\nchoose_action: info-gain\nvs exploit-value (pi)", scaffold=True)
+# Octopus CLI front-end (Phase 4.1a): setup wizard, /model swap, belief view.
+node("cli", 60, 640, W, H, "octopus CLI (Ink) [4.1a]\nsetup, /model, belief view\n(cli/)", scaffold=True)
+# Remaining future work: the top-level control loop.
+node("runagent", 900, 120, W, H, "run_agent [stub]\ntop-level POMDP loop\n(eval driver)", future=True)
 
 # ---- main data flow (solid gray) ----
 arrow("user", "b", "roles", "t", label="session")
@@ -163,13 +167,17 @@ arrow("llm", "r", "mem", "l", dashed=True, label="RAG (if on)")
 arrow("llm", "l", "db", "r", dashed=True, label="history")
 arrow("roles", "b", "db", "t", dashed=True, label="persist")
 
-# ---- belief scaffold (Phase 2.1, blue) ----
+# ---- belief layer wiring (Phase 2.1-2.5, blue) ----
 arrow("bstate", "r", "bs", "l", dashed=True, color=IMPL_STROKE, label="belief b")
 arrow("roles", "b", "bs", "t", dashed=True, color=IMPL_STROKE, label="persist b/step")
+arrow("bu", "t", "summ", "b", dashed=True, color=IMPL_STROKE, label="updates b (O)")
+arrow("priors", "t", "bstate", "b", dashed=True, color=IMPL_STROKE, label="R priors")
+arrow("bcp", "b", "planner", "t", dashed=True, color=IMPL_STROKE, label="task_selector")
+arrow("cli", "t", "user", "b", dashed=True, color=IMPL_STROKE, label="launch/setup")
+arrow("cli", "r", "bs", "b", dashed=True, color=IMPL_STROKE, label="reads b")
 
-# ---- future attachment points (dashed orange) ----
-arrow("bu", "t", "summ", "b", dashed=True, color=IMPL_STROKE, label="updates")
-arrow("bcp", "b", "planner", "t", dashed=True, color=FUT_STROKE, label="attaches")
+# ---- remaining future work (dashed orange) ----
+arrow("runagent", "b", "roles", "t", dashed=True, color=FUT_STROKE, label="drives loop")
 
 doc = {
     "type": "excalidraw",

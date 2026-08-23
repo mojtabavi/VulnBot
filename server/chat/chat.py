@@ -49,6 +49,72 @@ class OpenAIChat(ABC):
             return f"**ERROR**: {str(e)}"
 
 
+class AnthropicChat(ABC):
+    """Native Anthropic (Claude) client. Two auth modes:
+      - api_key: Anthropic(api_key=...) → sends x-api-key.
+      - oauth:   Anthropic(api_key=None, auth_token=<subscription bearer>) → sends
+                 Authorization: Bearer, plus the anthropic-beta OAuth header.
+    base_url must NOT include /v1 (the SDK appends /v1/messages itself).
+    The OpenAI-style `history` (system + alternating user/assistant + final user) is mapped
+    to Anthropic's shape: the system message becomes the `system` param, the rest stay as
+    messages. Imported lazily so non-Anthropic runs don't need the `anthropic` package."""
+
+    # Beta header that authorizes a Pro/Max OAuth token for the Messages API.
+    OAUTH_BETA = "oauth-2025-04-20"
+
+    def __init__(self, config):
+        from anthropic import Anthropic  # lazy: only needed when llm_model == anthropic
+
+        self.config = config
+        self.model_name = config.llm_model_name
+        base_url = config.base_url or "https://api.anthropic.com"
+        if getattr(config, "auth_mode", "api_key") == "oauth":
+            self.client = Anthropic(
+                api_key=None,
+                auth_token=config.auth_token,
+                base_url=base_url,
+                timeout=config.timeout,
+                default_headers={"anthropic-beta": self.OAUTH_BETA},
+            )
+        else:
+            self.client = Anthropic(api_key=config.api_key, base_url=base_url, timeout=config.timeout)
+
+    @staticmethod
+    def _split_history(history: List[dict]):
+        """→ (system_prompt, messages) with the system entry pulled out of the list."""
+        system = "You are a helpful assistant"
+        msgs = []
+        for m in history:
+            if m.get("role") == "system":
+                system = m.get("content", system)
+            else:
+                msgs.append({"role": m["role"], "content": m["content"]})
+        return system, msgs
+
+    @retry(
+        stop=stop_after_attempt(3),
+    )
+    def chat(self, history: List[dict]) -> str:
+        try:
+            system, msgs = self._split_history(history)
+            response = self.client.messages.create(
+                model=self.model_name,
+                max_tokens=getattr(self.config, "max_tokens", 4096),
+                temperature=self.config.temperature,
+                system=system,
+                messages=msgs,
+            )
+            # content is a list of blocks; concatenate the text blocks.
+            return "".join(getattr(block, "text", "") for block in response.content)
+        except (httpx.HTTPStatusError, httpx.ReadTimeout,
+                    httpx.ConnectTimeout, ConnectionError) as e:
+            if getattr(e, "response", None) and e.response.status_code == 429:
+                time.sleep(2)
+            raise
+        except Exception as e:
+            return f"**ERROR**: {str(e)}"
+
+
 class OllamaChat(ABC):
     def __init__(self, config):
         self.config = config
@@ -130,6 +196,8 @@ def _chat(query: str, kb_name=None, conversation_id=None, kb_query=None, summary
             client = OpenAIChat(config=Configs.llm_config)
         elif Configs.llm_config.llm_model == LLMType.OLLAMA:
             client = OllamaChat(config=Configs.llm_config)
+        elif Configs.llm_config.llm_model == LLMType.ANTHROPIC:
+            client = AnthropicChat(config=Configs.llm_config)
         else:
             return "Unsupported model type"
 

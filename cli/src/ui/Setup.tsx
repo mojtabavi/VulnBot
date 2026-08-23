@@ -1,15 +1,29 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
-import { TextField, Select } from './inputs.js';
+import { TextField, Select, FilterSelect } from './inputs.js';
 import {
   writeModelConfig,
   writeKaliConfig,
   savePrefs,
   loadPrefs,
+  listProviders,
   type ExecutorMode,
 } from '../config.js';
+import { getProvider, type AuthMode } from '../providers.js';
+import { fetchModels } from '../models.js';
 
-type Step = 'executor' | 'khost' | 'kport' | 'kuser' | 'kpass' | 'provider' | 'base_url' | 'api_key' | 'model';
+type Step =
+  | 'executor'
+  | 'khost'
+  | 'kport'
+  | 'kuser'
+  | 'kpass'
+  | 'provider'
+  | 'auth'
+  | 'api_key'
+  | 'model_fetch'
+  | 'model_pick'
+  | 'model_manual';
 
 interface Draft {
   mode: ExecutorMode;
@@ -17,9 +31,10 @@ interface Draft {
   port: string;
   user: string;
   pass: string;
-  provider: 'openai' | 'ollama';
+  providerId: string;
   base_url: string;
   api_key: string;
+  auth_mode: AuthMode;
   model: string;
 }
 
@@ -29,23 +44,28 @@ const DEFAULT: Draft = {
   port: '22',
   user: 'root',
   pass: '',
-  provider: 'openai',
-  base_url: 'http://127.0.0.1:11434/v1',
+  providerId: 'openai',
+  base_url: '',
   api_key: '',
+  auth_mode: 'api_key',
   model: '',
 };
 
 export default function Setup({ onDone }: { onDone: () => void }): React.ReactElement {
   const [step, setStep] = useState<Step>('executor');
   const [d, setD] = useState<Draft>(DEFAULT);
+  const [models, setModels] = useState<string[]>([]);
   const set = (patch: Partial<Draft>) => setD((prev) => ({ ...prev, ...patch }));
 
   function finalize(draft: Draft): void {
+    const p = getProvider(draft.providerId);
     writeModelConfig({
-      provider: draft.provider,
+      provider: draft.providerId,
+      kind: p?.kind ?? 'openai',
       base_url: draft.base_url,
       api_key: draft.api_key,
       model: draft.model,
+      auth_mode: draft.auth_mode,
     });
     if (draft.mode === 'remote') {
       writeKaliConfig(
@@ -60,6 +80,32 @@ export default function Setup({ onDone }: { onDone: () => void }): React.ReactEl
     savePrefs({ ...prefs, setupComplete: true, executorMode: draft.mode, model: draft.model });
     onDone();
   }
+
+  // Enter the LLM flow at the provider picker with a fresh draft carrying the chosen executor.
+  function afterProvider(id: string): void {
+    const p = getProvider(id)!;
+    set({ providerId: id, base_url: p.baseUrl, auth_mode: p.authModes[0] });
+    if (p.authModes.length > 1) setStep('auth');
+    else if (p.authModes[0] === 'none') setStep('model_fetch');
+    else setStep('api_key');
+  }
+
+  // Fetch the catalog when we reach model_fetch; branch to picker or manual entry.
+  useEffect(() => {
+    if (step !== 'model_fetch') return;
+    const p = getProvider(d.providerId)!;
+    let alive = true;
+    fetchModels(p, { baseUrl: d.base_url, apiKey: d.api_key, authMode: d.auth_mode })
+      .then((list) => {
+        if (!alive) return;
+        setModels(list);
+        setStep(list.length > 0 ? 'model_pick' : 'model_manual');
+      })
+      .catch(() => alive && setStep('model_manual'));
+    return () => {
+      alive = false;
+    };
+  }, [step]);
 
   return (
     <Box flexDirection="column">
@@ -98,30 +144,58 @@ export default function Setup({ onDone }: { onDone: () => void }): React.ReactEl
       )}
 
       {step === 'provider' && (
-        <Select<'openai' | 'ollama'>
-          label="LLM API type:"
-          items={[
-            { label: 'OpenAI-compatible (vLLM / LM Studio / OpenAI / gateway)', value: 'openai' },
-            { label: 'Ollama', value: 'ollama' },
-          ]}
-          onSelect={(provider) => {
-            const base_url = provider === 'ollama' ? 'http://127.0.0.1:11434' : 'http://127.0.0.1:11434/v1';
-            set({ provider, base_url });
-            setStep('base_url');
+        <Select<string>
+          label="LLM provider:"
+          items={listProviders().map((p) => ({ label: p.label, value: p.id }))}
+          onSelect={afterProvider}
+        />
+      )}
+
+      {step === 'auth' && (
+        <Select<AuthMode>
+          label={`Auth for ${getProvider(d.providerId)?.label}:`}
+          items={(getProvider(d.providerId)?.authModes ?? ['api_key']).map((m) => ({
+            label:
+              m === 'oauth'
+                ? 'Subscription (Claude Pro/Max — OAuth; run /login after setup)'
+                : m === 'none'
+                ? 'None (local)'
+                : 'API key',
+            value: m,
+          }))}
+          onSelect={(m) => {
+            set({ auth_mode: m });
+            if (m === 'api_key') setStep('api_key');
+            else setStep('model_fetch'); // oauth token added later via /login (B6); none = no key
           }}
         />
       )}
-      {step === 'base_url' && (
-        <TextField key="base_url" label="LLM base_url:" initial={d.base_url}
-          onSubmit={(v) => { set({ base_url: v || d.base_url }); setStep('api_key'); }} />
-      )}
+
       {step === 'api_key' && (
-        <TextField key="api_key" label="LLM api_key (blank if none):" mask
-          onSubmit={(v) => { set({ api_key: v }); setStep('model'); }} />
+        <TextField key="api_key" label={`${getProvider(d.providerId)?.label} API key (blank if none):`} mask
+          onSubmit={(v) => { set({ api_key: v }); setStep('model_fetch'); }} />
       )}
-      {step === 'model' && (
-        <TextField key="model" label="LLM model name:" initial={d.model}
-          onSubmit={(v) => finalize({ ...d, model: v })} />
+
+      {step === 'model_fetch' && (
+        <Text color="gray">fetching {getProvider(d.providerId)?.label} models…</Text>
+      )}
+
+      {step === 'model_pick' && (
+        <FilterSelect
+          title={`pick a model (${getProvider(d.providerId)?.label})`}
+          items={models.map((m) => ({ label: m, value: m }))}
+          onSelect={(v) => finalize({ ...d, model: v })}
+          onCancel={() => setStep('model_manual')}
+        />
+      )}
+
+      {step === 'model_manual' && (
+        <TextField
+          key="model"
+          label={`Model name (e.g. ${getProvider(d.providerId)?.modelHint ?? 'model-id'}):`}
+          initial={d.model}
+          onSubmit={(v) => finalize({ ...d, model: v })}
+        />
       )}
     </Box>
   );

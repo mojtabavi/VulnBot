@@ -28,9 +28,10 @@ VulnBot is an advanced automated penetration testing framework that utilizes Lar
 
 ### Architecture (this fork)
 
-Current module layout and data flow. Gray = current modules; orange = future belief-state
-attachment points (placeholders only). Full write-up in [`ARCHITECTURE.md`](ARCHITECTURE.md);
-editable source in [`project_schematic.excalidraw`](project_schematic.excalidraw).
+Current module layout and data flow. Gray = original VulnBot modules; blue = belief-state layer
+implemented in this fork (`pomdp/`); orange = remaining future work. Full write-up in
+[`ARCHITECTURE.md`](ARCHITECTURE.md); editable source in
+[`project_schematic.excalidraw`](project_schematic.excalidraw).
 
 ![VulnBot current architecture & data flow](docs/project_schematic.png)
 
@@ -50,8 +51,10 @@ cp .env.example .env         # fill MSF_RPC_PASSWORD, AGENT_SSH_PUBKEY, LLM back
   **target** is a deliberately vulnerable image; **agent** is the VulnBot + belief app.
 - LLM backend is switchable via `.env` `LLM_BACKEND=local|api` (compose profiles).
 
-The explicit-belief-state work and its belief scaffold (`belief_state.py`, `belief_store.py`)
-are described in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+The explicit-belief-state layer (`pomdp/belief_state.py`, `belief_store.py`, `priors.py`) is
+implemented (Phase 2.1–2.5: Belief Store, LLM-likelihood soft-Bayes Updater, belief-conditioned
+policy π, and reward R + offline CVSS priors); only the top-level `run_agent` control loop is
+stubbed. Described in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
 

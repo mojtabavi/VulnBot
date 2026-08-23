@@ -1,14 +1,31 @@
 # LLM Configuration (model_config.yaml)
-# THIS is where the LLM is swapped.
-#   llm_model: openai | ollama   (selects the client in server/chat/chat.py)
+# THIS is where the LLM is swapped. Easiest path: run the octopus CLI (`cli/`) and use the
+# setup wizard / `/provider` / `/model` — it writes these fields for you from a provider
+# registry with live model selection. The fields:
+#   llm_model:    client kind dispatched in server/chat/chat.py -> openai | ollama | anthropic
+#   llm_provider: named provider preset (openai|anthropic|qwen|kimi|deepseek|openrouter|ollama|...)
 #   base_url + api_key + llm_model_name point at the actual model endpoint.
-# For an OpenAI-compatible local server (vLLM, LM Studio, etc.) keep llm_model: openai
-# and set base_url to that server. For Ollama use llm_model: ollama.
+#   auth_mode:    api_key | oauth | none   (oauth = Claude Pro/Max subscription; native only)
+#   auth_token:   OAuth bearer for the subscription (keep BLANK here; real value is git-ignored)
+#
+# Provider presets (all OpenAI-wire providers keep llm_model: openai, differ by base_url):
+#   openai      base_url: https://api.openai.com/v1
+#   qwen        base_url: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+#   kimi        base_url: https://api.moonshot.ai/v1
+#   deepseek    base_url: https://api.deepseek.com/v1
+#   openrouter  base_url: https://openrouter.ai/api/v1     (300+ models)
+#   ollama      llm_model: ollama, base_url: http://127.0.0.1:11434
+#   anthropic   llm_model: anthropic, base_url: https://api.anthropic.com  (NO /v1 — SDK adds it)
+#               API key -> auth_mode: api_key;  Pro/Max subscription -> auth_mode: oauth + auth_token
 
 api_key: "sk-REPLACE_ME"
 llm_model: openai
+llm_provider: openai
 base_url: "http://127.0.0.1:11434/v1"
 llm_model_name: "deepseek-r1:7b"
+auth_mode: api_key
+auth_token: ""
+max_tokens: 4096
 
 # Embedding / rerank (only used when enable_rag: true)
 embedding_models: "maidalun1020/bce-embedding-base_v1"
