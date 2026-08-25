@@ -20,6 +20,7 @@ export const COMMANDS: CommandSpec[] = [
   { name: 'status', args: '', help: 'provider, auth, model, executor, lab status' },
   { name: 'lab', args: 'up|down|smoke', help: 'control / test the Docker lab' },
   { name: 'belief', args: '[run]', help: 'show the latest belief trace' },
+  { name: 'log', args: '[run]', help: 'open the event-log viewer (current/last run)' },
   { name: 'run', args: '[target]', help: 'start an assessment (interim: validates channel)' },
   { name: 'clear', args: '', help: 'clear the screen' },
   { name: 'quit', args: '', help: 'exit' },
@@ -27,9 +28,11 @@ export const COMMANDS: CommandSpec[] = [
 
 export interface CommandResult {
   lines: string[];
-  action?: 'quit' | 'setup' | 'clear' | 'pick-model' | 'reconfigure-llm' | 'login' | 'run-pentest';
+  action?: 'quit' | 'setup' | 'clear' | 'pick-model' | 'reconfigure-llm' | 'login' | 'run-pentest' | 'log';
   /** for 'run-pentest': the task/target description passed to the pipeline. */
   description?: string;
+  /** for 'log': the run id to open (empty = current/last run). */
+  runId?: string;
 }
 
 /** Whether a command is slow (async work → show a spinner) and its verb label. */
@@ -130,6 +133,10 @@ export async function handleCommand(input: string): Promise<CommandResult> {
 
     case 'belief':
       return { lines: formatBelief(args[0]) };
+
+    case 'log':
+      // Open the R4 event-log viewer. No arg → the Repl resolves the current/last run.
+      return { lines: [], action: 'log', runId: args[0] };
 
     case 'run': {
       const arg = args.join(' ').trim();

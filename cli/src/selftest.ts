@@ -77,6 +77,11 @@ const runIp = await handleCommand('/run 172.20.0.10');
 assert.ok(runIp.action === 'run-pentest' && (runIp.description ?? '').includes('172.20.0.10'), '/run <ip> → run-pentest with description');
 const runText = await handleCommand('/run exploit the RCE on host X');
 assert.strictEqual(runText.description, 'exploit the RCE on host X', '/run <text> passes description verbatim');
+const logNoArg = await handleCommand('/log');
+assert.strictEqual(logNoArg.action, 'log', '/log → log action');
+assert.strictEqual(logNoArg.runId, undefined, '/log (no arg) → current/last run resolved by the Repl');
+const logRun = await handleCommand('/log agent-123');
+assert.strictEqual(logRun.runId, 'agent-123', '/log <run> passes the run id');
 const quit = await handleCommand('/quit');
 assert.strictEqual(quit.action, 'quit', '/quit action');
 const bel = await handleCommand('/belief');
@@ -326,6 +331,78 @@ await (async () => {
   assert.deepStrictEqual(evParts, ['approval_request'], 'client received the agent event frame');
   assert.strictEqual((received[0] as { cmd: string }).cmd, 'approve', 'agent got the approve command frame');
   assert.strictEqual((received[1] as { cmd: string }).cmd, 'step', 'agent got the step command frame');
+})();
+
+// logview (R4 TL-5.1): pure parse + filter of the event log, and tail delivers appended records
+const lv = await import('./logview.js');
+assert.strictEqual(lv.parseEventLine('  '), null, 'parseEventLine: blank → null');
+assert.strictEqual(lv.parseEventLine('not json'), null, 'parseEventLine: garbage → null');
+assert.strictEqual(lv.parseEventLine('{"foo":1}'), null, 'parseEventLine: missing type/seq → null');
+const rec0 = lv.parseEventLine('{"type":"observation","seq":3,"raw":"80 open"}');
+assert.ok(rec0 && rec0.type === 'observation' && rec0.seq === 3, 'parseEventLine: valid record');
+const evs = lv.parseEvents('{"type":"run_start","seq":1}\n\nbad line\n{"type":"observation","seq":2}\n');
+assert.strictEqual(evs.length, 2, 'parseEvents: skips blank + torn lines');
+assert.deepStrictEqual(lv.filterEvents(evs, ['observation']).map((e) => e.seq), [2], 'filterEvents by type');
+assert.strictEqual(lv.filterEvents(evs, []).length, 2, 'filterEvents empty types = keep all');
+
+await (async () => {
+  // tail: PENTEST_ROOT is `tmp`, so runsDir() = tmp/data/runs
+  const runId = 'lvrun';
+  const dir = path.join(tmp, 'data', 'runs', runId);
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'events.jsonl');
+  fs.writeFileSync(file, '{"type":"run_start","seq":1}\n'); // pre-existing record
+  const got: number[] = [];
+  const tail = lv.tailEvents(runId, (r) => got.push(r.seq), { pollMs: 30 });
+  await new Promise((r) => setTimeout(r, 60));
+  fs.appendFileSync(file, '{"type":"observation","seq":2}\n'); // appended after tail starts
+  await new Promise((r) => setTimeout(r, 120));
+  tail.stop();
+  assert.deepStrictEqual(got, [1, 2], 'tailEvents delivers existing + appended records once');
+  assert.strictEqual(lv.latestRunId(), runId, 'latestRunId finds the run');
+  assert.deepStrictEqual(lv.readEvents(runId).map((e) => e.seq), [1, 2], 'readEvents reads the whole file');
+})();
+
+// logview per-type summary (R4 TL-5.4): each record type renders a distinct human-friendly line
+{
+  const S = lv.summarizeEvent;
+  assert.strictEqual(S({ type: 'observation', seq: 1, channel: 'ssh', tool: 'nmap', success: true, raw: '80/tcp open\n443 open' }).text,
+    '✓ ssh nmap — 80/tcp open', 'summarize observation: ok + channel + first raw line');
+  assert.strictEqual(S({ type: 'decision', seq: 2, kind: 'route', channel: 'msfrpc', ok: true }).text,
+    'route → msfrpc', 'summarize route decision');
+  assert.strictEqual(S({ type: 'belief_update', seq: 3, factor: 'vulns', key: 'CVE-x', host: 'h' }).icon, '🧠', 'summarize belief_update icon');
+  assert.strictEqual(S({ type: 'approval_result', seq: 4, approved: false, action: 'pop' }).text, 'denied pop', 'summarize denied approval');
+  assert.strictEqual(S({ type: 'approval_result', seq: 5, approved: true, action: 'pop' }).text, 'approved pop', 'summarize approved');
+  assert.strictEqual(S({ type: 'run_end', seq: 6, steps: 4 }).text, 'run end (steps=4)', 'summarize run_end');
+  assert.strictEqual(S({ type: 'weird', seq: 7 }).text, 'weird', 'summarize unknown type → the type name');
+}
+
+// approval markers (R2 TL-5.4): ControlClient approve/deny emit the right command frames
+await (async () => {
+  const net = await import('node:net');
+  const got: string[] = [];
+  const server = net.createServer((sock) => {
+    sock.setEncoding('utf8');
+    let buf = '';
+    sock.on('data', (c: string) => {
+      buf += c;
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        if (line.trim()) got.push((JSON.parse(line) as { cmd: string }).cmd);
+      }
+    });
+  });
+  await new Promise<void>((res) => server.listen(0, '127.0.0.1', () => res()));
+  const port = (server.address() as import('node:net').AddressInfo).port;
+  await new Promise<void>((resolve) => {
+    const c: InstanceType<typeof ControlClient> = new ControlClient({
+      onConnect: () => { c.deny(); c.pause(); c.resume(); c.quit(); },
+    });
+    c.connect(port);
+    setTimeout(() => { c.close(); server.close(); resolve(); }, 120);
+  });
+  assert.deepStrictEqual(got, ['deny', 'pause', 'resume', 'quit'], 'ControlClient helpers emit the right command frames');
 })();
 
 fs.rmSync(tmp, { recursive: true, force: true });

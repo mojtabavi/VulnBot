@@ -9,6 +9,19 @@ R2 interactive Ink CLI (HITL), R3 multi-channel executor, R4 JSON logging + Ink 
 ## [Unreleased] — R1–R4 interactive-POMDP hardening
 
 ### Added
+- **LogView selftest coverage + pure `summarizeEvent` (R4, TL-5.4 → TL-5 COMPLETE).** Moved the per-type
+  render mapping into `logview.ts` (tested without Ink); selftest covers summaries, parse/filter/tail,
+  control-frame round-trip, approval command frames, and `/log`. **R4 Ink LogView is done.** typecheck +
+  selftest PASS.
+- **`/log [run_id]` opens the LogView (R4, TL-5.3).** New `/log` command → the Repl resolves the run
+  (arg or `latestRunId()`) and opens the `LogView` overlay. selftest asserts. typecheck + selftest PASS.
+- **`cli/src/ui/LogView.tsx` — event-log render (R4, TL-5.2).** Self-tailing Ink component: per-type
+  summaries, belief/Z posterior bars, expandable details (never raw JSON), scroll + type filter + expand.
+  typecheck PASS.
+- **`cli/src/logview.ts` — LogView data layer (R4, TL-5.1).** Pure parse (`parseEventLine`/`parseEvents`/
+  `filterEvents`) + run-log resolvers (`runsDir`/`eventsPathFor`/`latestRunId`/`readEvents`) + `tailEvents`
+  (fs.watch + poll fallback, byte-offset dedupe, truncation-safe). selftest: parse/filter + live tail.
+  typecheck + selftest PASS.
 - **`RunView` paused / awaiting-approval state (R2, TL-4.5 → TL-4 COMPLETE).** RunView renders an
   awaiting-approval or paused status line from `paused`/`awaiting` props. **R2 interactive HITL is done.**
   typecheck + selftest PASS.

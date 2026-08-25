@@ -19,6 +19,8 @@ import RunView from './RunView.js';
 import LogLine from './LogLine.js';
 import ApprovalPrompt, { type ApprovalRequest } from './ApprovalPrompt.js';
 import { ControlClient, parseControlPort } from '../control.js';
+import LogView from './LogView.js';
+import { latestRunId } from '../logview.js';
 
 type Item =
   | { kind: 'line'; text: string }
@@ -71,6 +73,8 @@ export default function Repl({
   const controlRef = useRef<ControlClient | null>(null);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [paused, setPaused] = useState(false);
+  // R4 LogView overlay: the run id whose events.jsonl to render, or null (closed).
+  const [logRun, setLogRun] = useState<string | null>(null);
 
   // Setup chose the Claude subscription → kick off /login automatically (opens the browser),
   // then the model + thinking pickers follow. Runs once.
@@ -145,6 +149,12 @@ export default function Repl({
       if (res.action === 'pick-model') return await openModelPicker();
       if (res.action === 'login') return await handleLogin();
       if (res.action === 'run-pentest') return await startRun(res.description ?? '');
+      if (res.action === 'log') {
+        const rid = res.runId || latestRunId();
+        if (!rid) pushLines(['no runs yet — start one with /run --agent <target>.']);
+        else setLogRun(rid);
+        return;
+      }
     } catch (e: any) {
       pushLines([`error: ${e?.message ?? String(e)}`]);
     } finally {
@@ -388,7 +398,7 @@ export default function Repl({
       }
       return exit();
     }
-    if (picker || oauth || approval) return; // an overlay owns the keyboard (its own useInput handles keys)
+    if (picker || oauth || approval || logRun) return; // an overlay owns the keyboard (its own useInput handles keys)
     // R2 HITL keybinds while a run streams: pause / resume / step / quit over the control socket.
     if (running && controlRef.current?.connected) {
       if (ch === 'p' || ch === 'P') { controlRef.current.pause(); pushLines(['⏸ pause requested']); return; }
@@ -489,6 +499,7 @@ export default function Repl({
         <TextField label="paste the authorization code (then Enter):" onSubmit={submitOauthCode} />
       ) : null}
       {approval ? <ApprovalPrompt req={approval} onDecide={decideApproval} /> : null}
+      {logRun ? <LogView runId={logRun} onClose={() => setLogRun(null)} /> : null}
       <Box borderStyle="round" borderColor={busy ? 'gray' : 'magenta'} paddingX={1}>
         <Text color="magenta">❯ </Text>
         {busy || running ? (

@@ -116,8 +116,8 @@ def title(x, y, text, size, color):
 W, H = 232, 88
 # ---- titles ----
 title(60, 20, "VulnBot — Architecture & Data Flow", 28, GRAY_STROKE)
-title(60, 56, "Gray = current VulnBot modules   |   Blue = implemented this fork (Docker lab / POMDP belief 2.1-2.5 / octopus CLI / R1-R4 TL-0 contracts + Executor R3 TL-1 + BeliefAgent loop R1 TL-2 + JSON logging R4 TL-3 + Ink HITL R2 TL-4)", 14, IMPL_STROKE)
-title(60, 76, "Orange = remaining R1-R4 work (Ink LogView R4 TL-5)", 14, FUT_STROKE)
+title(60, 56, "Gray = current VulnBot modules   |   Blue = implemented this fork: Docker lab, POMDP belief 2.1-2.5, octopus CLI, and ALL R1-R4 modules (TL-0 contracts, Executor R3 TL-1, BeliefAgent loop R1 TL-2, JSON logging R4 TL-3, Ink HITL R2 TL-4, Ink LogView R4 TL-5)", 14, IMPL_STROKE)
+title(60, 76, "Remaining: TL-6 = live end-to-end run on the lab + final doc/schematic sync (no new modules).", 14, FUT_STROKE)
 
 # ---- current nodes ----
 node("user",     60,  120, W, H, "User / Session\n(init_description,\ntarget IP)")
@@ -152,7 +152,7 @@ node("events",   60, 780, W, H, "events.py [TL-0]\nJSONL event log (R4)\ndata/ru
 node("control", 340, 780, W, H, "control.py [TL-0]\nloopback HITL socket\n(R2 back-channel)", scaffold=True)
 # ---- R1-R4 remaining lanes (orange placeholders) ----
 node("executor",1180, 780, W, H, "Executor + channels [R3 TL-1]\nSSH/msfrpc/MCP + router\ntimeout/retry/fallback (executor/)", scaffold=True)
-node("logview",  620, 780, W, H, "octopus LogView [R4 TL-5]\ntails jsonl, per-type render\n(cli/) — HITL R2 TL-4 done", future=True)
+node("logview",  620, 780, W, H, "octopus LogView [R4 TL-5]\ntails jsonl, per-type render\n+ HITL R2 TL-4 (cli/)", scaffold=True)
 
 # ---- main data flow (solid gray) ----
 arrow("user", "b", "roles", "t", label="session")
@@ -198,8 +198,8 @@ arrow("obs", "r", "executor", "l", dashed=True, color=IMPL_STROKE, label="normal
 arrow("runagent", "b", "roles", "t", dashed=True, color=IMPL_STROKE, label="drives loop")
 arrow("runagent", "b", "executor", "t", dashed=True, color=IMPL_STROKE, label="run(action)")
 
-# ---- R1-R4 remaining lanes (dashed orange) ----
-arrow("logview", "t", "events", "r", dashed=True, color=FUT_STROKE, label="renders")
+# ---- LogView wiring (R4 TL-5, blue: done) ----
+arrow("logview", "t", "events", "r", dashed=True, color=IMPL_STROKE, label="tails+renders")
 
 doc = {
     "type": "excalidraw",
