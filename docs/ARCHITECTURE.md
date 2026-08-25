@@ -32,7 +32,7 @@ The paper's conceptual modules map onto the code as follows:
 | Summarizer          | `actions/plan_summary.py::PlannerSummary` + `summary_result`/`check_success` prompts |
 | Penetration Task Graph (PTG) | `db/models/plan_model.py::Plan` + `db/models/task_model.py::Task` (dependency DAG, topological sort) |
 
-### 1.1 R1–R4 hardening (this fork) — shared-contract foundations (TL-0 done)
+### 1.1 R1–R4 hardening (this fork) — shared-contract foundations (TL-0) + executor layer (TL-1)
 
 On top of the belief layer, an in-progress pass turns the agent into a fully interactive POMDP
 (details: `docs/POMDP_INTEGRATION.md`, `docs/EXECUTOR.md`, plan `~/.claude/plans/…joyful-scroll.md`).
@@ -49,7 +49,21 @@ TL-0 landed the shared contracts every later piece builds on:
 2. **Truth (Py→disk→CLI):** `events.jsonl` — full JSON records; the LogView tails the file.
 3. **Control (CLI↔Py):** the loopback socket — HITL only.
 
-Still to come: the Executor channels/router (R3, TL-1), the standalone `BeliefAgent` loop that wires
+**TL-1 — the R3 multi-channel executor (`executor/`, done).** One `Executor.run(action) → Observation`
+facade over pluggable channels, so the belief loop always receives a normalized O regardless of transport:
+
+| Piece | Module | Role |
+|-------|--------|------|
+| Facade | `executor/base.py` | `Channel` ABC + `Executor`; routes an action to ordered candidates, times each in a daemon-thread budget (`timeout_s` → `ChannelTimeout`), retries a plain `ChannelError` (never a timeout — non-idempotent-exploit safety), falls back to the next capable channel, records the trail in `structured["_executor_fallback"]`, and **never raises** (all-dead → a failure `Observation`) |
+| Channel A — SSH | `executor/ssh_channel.py` | arbitrary shell tools via the reused `ShellManager`/`RemoteShell`; stdout → `Observation.raw` |
+| Channel B — msfrpc | `executor/msf_channel.py` | Metasploit modules over `pymetasploit3`; structured RPC result → `Observation.structured` |
+| Channel C — MCP | `executor/mcp_channel.py` | optional, **flag-gated `VULNBOT_MCP=0`**; a no-op until a server+version is verified — SSH+msfrpc are sufficient alone |
+| Router | `executor/router.py` | picks per action type + logs the justification (recon→ssh; exploit/lateral/privesc naming an MSF module→msfrpc first, ssh fallback; no module→ssh) as a `##OCTO## decision|kind=route` marker |
+
+This R3 executor is **distinct** from the legacy `actions/execute_task.py` pipeline path (§4); the
+standalone `BeliefAgent` (R1, TL-2) will drive it. Verified by `tests/test_executor.py` (23 tests, fakes).
+
+Still to come: the standalone `BeliefAgent` loop that wires
 `choose_action → executor.run → update_belief → persist` (R1, TL-2), JSON-logging throughout (R4, TL-3),
 and the Ink HITL + LogView (R2/R4, TL-4/5).
 

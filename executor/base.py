@@ -15,18 +15,28 @@ Both are stdlib-only, so this module imports without the RAG/ML stack.
 from __future__ import annotations
 
 import abc
+import threading
 import time
 from typing import Callable, List, Optional, Sequence
 
 from pomdp.belief_state import Action
 from pomdp.observation import Observation, new_action_id
 
-__all__ = ["Channel", "Executor", "ChannelError", "Router"]
+__all__ = ["Channel", "Executor", "ChannelError", "ChannelTimeout", "Router"]
 
 
 class ChannelError(Exception):
     """A channel could not run the action (unreachable, auth, RPC down). The Executor catches
-    it and either falls back to another capable channel or returns a failure `Observation`."""
+    it and either falls back to another capable channel or returns a failure `Observation`.
+
+    A plain `ChannelError` means the tool did NOT execute (connect/auth failed *before* the
+    command ran), so retrying the same channel is safe."""
+
+
+class ChannelTimeout(ChannelError):
+    """The channel exceeded its time budget. Distinct from `ChannelError` because the tool may
+    have *already started* — so a timed-out call is NEVER auto-retried (a non-idempotent
+    exploit must not fire twice); the Executor falls straight through to the next channel."""
 
 
 class Channel(abc.ABC):
@@ -62,6 +72,18 @@ def _default_router(action: Action, channels: Sequence[Channel]) -> List[Channel
     return [c for c in channels if c.supports(action)]
 
 
+def _note_fallback(obs: Observation, errors: Sequence[str]) -> None:
+    """Record the failed attempts that preceded a successful call under a reserved meta key in
+    `structured`, so the R4 event log shows the retry/fallback trail. Non-destructive and
+    best-effort: `raw`/`error`/`success` of the winning Observation are left untouched."""
+    try:
+        meta = dict(obs.structured) if isinstance(obs.structured, dict) else {}
+        meta["_executor_fallback"] = list(errors)
+        obs.structured = meta
+    except Exception:  # noqa: BLE001 - trail is diagnostics; never break the run over it
+        pass
+
+
 def _make_default_router() -> Router:
     """The Executor's default: the TL-1.4 policy router (channel by action type + logged
     justification). Lazy import avoids a circular dependency (router imports this module);
@@ -77,14 +99,26 @@ class Executor:
     """Runs actions across pluggable channels behind `run(action) -> Observation`.
 
     - `channels`: the registered adapters (order = default preference).
-    - `router`: picks the ordered candidate channels for an action (default: all that support it).
-    The Executor times every call, stamps `action_id`/`channel`/`duration_ms`, and NEVER raises
-    into its caller — a channel that raises `ChannelError` triggers fallback; if no channel
-    succeeds it returns a failure `Observation` (so the belief loop always gets an O)."""
+    - `router`: picks the ordered candidate channels for an action (default: the TL-1.4 policy).
+    - `timeout_s`: per-attempt wall-clock budget (None = no timeout). Enforced in a daemon worker
+      thread — a blocking channel that overruns raises `ChannelTimeout` and the facade falls
+      through; the stuck thread is abandoned (best-effort, can't kill arbitrary blocking I/O).
+    - `retries`: extra attempts on the SAME channel after a plain `ChannelError` (default 0).
+      A `ChannelTimeout` is never retried (the tool may have started); a channel *bug* (any other
+      exception) is never retried either — both fall straight to the next capable channel.
 
-    def __init__(self, channels: Optional[Sequence[Channel]] = None, router: Optional[Router] = None):
+    The Executor times every call, stamps `action_id`/`channel`/`duration_ms`, and NEVER raises
+    into its caller — an unusable channel triggers fallback; if no channel succeeds it returns a
+    failure `Observation` (so the belief loop always gets an O). When a call only succeeds after a
+    retry or fallback, the earlier failures are recorded under `structured["_executor_fallback"]`
+    (a reserved meta key) so the JSON event log shows the trail without corrupting the result."""
+
+    def __init__(self, channels: Optional[Sequence[Channel]] = None, router: Optional[Router] = None,
+                 timeout_s: Optional[float] = None, retries: int = 0):
         self.channels: List[Channel] = list(channels or [])
         self.router: Router = router or _make_default_router()
+        self.timeout_s: Optional[float] = timeout_s
+        self.retries: int = max(0, int(retries))
 
     def register(self, channel: Channel) -> "Executor":
         self.channels.append(channel)
@@ -102,22 +136,11 @@ class Executor:
 
         errors: List[str] = []
         for ch in candidates:
-            t0 = time.time()
-            try:
-                obs = ch.run(action, aid)
-            except ChannelError as e:  # channel unusable → try the next capable one (TL-1.5 refines)
-                errors.append(f"{ch.name}: {e}")
-                continue
-            except Exception as e:  # noqa: BLE001 - never let a channel bug escape the facade
-                errors.append(f"{ch.name}: {type(e).__name__}: {e}")
-                continue
-            # stamp what the facade owns (channel may leave these unset)
-            if not obs.channel or obs.channel == "none":
-                obs.channel = ch.name
-            if obs.duration_ms is None:
-                obs.duration_ms = int((time.time() - t0) * 1000)
-            obs.action_id = obs.action_id or aid
-            return obs
+            obs = self._try_channel(ch, action, aid, errors)
+            if obs is not None:
+                if errors:  # succeeded only after a retry/fallback — record the trail, don't clobber
+                    _note_fallback(obs, errors)
+                return obs
 
         # every candidate channel was unusable → a normalized failure O, not an exception.
         return Observation.failure(
@@ -125,6 +148,56 @@ class Executor:
             error="; ".join(errors) or "all channels failed",
             host=getattr(action, "host", None),
         )
+
+    def _try_channel(self, ch: Channel, action: Action, aid: str, errors: List[str]) -> Optional[Observation]:
+        """Run one channel with the timeout budget + safe retries. Returns a stamped Observation
+        on success, or None if the channel is unusable (errors appended for the fallback trail)."""
+        attempts = self.retries + 1
+        for attempt in range(1, attempts + 1):
+            t0 = time.time()
+            try:
+                obs = self._call_with_timeout(ch, action, aid)
+            except ChannelTimeout as e:  # tool may have started — DO NOT retry, fall through
+                errors.append(f"{ch.name}: {e}")
+                return None
+            except ChannelError as e:  # unusable before the tool ran — safe to retry this channel
+                errors.append(f"{ch.name}#{attempt}: {e}")
+                continue
+            except Exception as e:  # noqa: BLE001 - a channel bug: never retry, fall to next channel
+                errors.append(f"{ch.name}: {type(e).__name__}: {e}")
+                return None
+            # stamp what the facade owns (channel may leave these unset)
+            if not obs.channel or obs.channel == "none":
+                obs.channel = ch.name
+            if obs.duration_ms is None:
+                obs.duration_ms = int((time.time() - t0) * 1000)
+            obs.action_id = obs.action_id or aid
+            return obs
+        return None  # retries exhausted on ChannelError
+
+    def _call_with_timeout(self, ch: Channel, action: Action, aid: str) -> Observation:
+        """`ch.run` under the per-attempt budget. No budget → direct call. With a budget, run in a
+        daemon thread and `join(timeout)`; overrun → `ChannelTimeout`. Exceptions from `ch.run`
+        (incl. `ChannelError`) are re-raised in this thread so the caller's handlers see them."""
+        if not self.timeout_s or self.timeout_s <= 0:
+            return ch.run(action, aid)
+
+        box: dict = {}
+
+        def _target() -> None:
+            try:
+                box["obs"] = ch.run(action, aid)
+            except BaseException as e:  # noqa: BLE001 - ferry any failure back to the caller thread
+                box["exc"] = e
+
+        t = threading.Thread(target=_target, name=f"exec-{ch.name}", daemon=True)
+        t.start()
+        t.join(self.timeout_s)
+        if t.is_alive():  # overran the budget — abandon the (daemon) thread, fall through
+            raise ChannelTimeout(f"timeout after {self.timeout_s:g}s")
+        if "exc" in box:
+            raise box["exc"]
+        return box["obs"]
 
     def close(self) -> None:
         for ch in self.channels:

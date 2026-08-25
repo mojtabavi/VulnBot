@@ -9,6 +9,32 @@ R2 interactive Ink CLI (HITL), R3 multi-channel executor, R4 JSON logging + Ink 
 ## [Unreleased] — R1–R4 interactive-POMDP hardening
 
 ### Added
+- **`docs/EXECUTOR.md` — finished executor-layer write-up (R3, TL-1.8 → TL-1 COMPLETE).** Files table,
+  `Action→Observation` data-flow, per-channel table, router ranking policy, TL-1.5 timeout/retry/fallback
+  semantics + `_executor_fallback` trail, TL-1.6 MCP gating, the `Observation` schema, tests/smoke, and
+  safety. **The R3 multi-channel executor is done**: one `Executor.run(action)→Observation` over
+  SSH + msfrpc (+ flag-gated MCP), a policy router, timeout/retry/fallback — 23 executor tests, 53 total.
+- **`tests/test_executor.py` — Executor-layer test suite (R3, TL-1.7).** 23 tests with fake channels
+  (no real Kali/msfrpcd/MCP): router policy, `Observation` normalization + stamping, timeout/retry/
+  fallback robustness (incl. timeout-not-auto-retried and all-dead→failure-never-raises), and MCP
+  flag-gating via `monkeypatch`. Full suite 53 passed.
+- **`executor/mcp_channel.py` — flag-gated MCP channel, OFF by default (R3, TL-1.6).** Channel C, an
+  optional MCP tool bridge that is strictly additive (SSH+msfrpc stay sufficient). `VULNBOT_MCP` unset/
+  falsey → `supports()` False → the router never routes here (pure no-op). Truthy → offered only for
+  actions naming an MCP tool (`params['mcp_tool']` / `mcp:` prefix), and `run()` first verifies
+  `VULNBOT_MCP_SERVER`+`VULNBOT_MCP_VERSION` (or an injected `verifier`) — a miss raises `ChannelError`→
+  fallback, so enabling the flag can never break a run. No transport is wired yet (deliberate stub): no
+  `client_provider` → `ChannelError`→fallback; `_run_tool` is the injectable extension point that
+  normalizes `call_tool` results into an `Observation`. Smoke PASS (12 asserts).
+- **`executor/base.py` — per-channel timeout + safe retry + fallback trail (R3, TL-1.5).**
+  `Executor(timeout_s, retries)`. `timeout_s` runs each attempt in a daemon thread and `join`s the budget;
+  an overrun raises the new `ChannelTimeout(ChannelError)` and the stuck thread is abandoned. Retry is
+  safety-first: a plain `ChannelError` (tool didn't run) retries the SAME channel up to `retries` times; a
+  `ChannelTimeout` is **never** auto-retried (the tool may have started — a non-idempotent exploit must not
+  fire twice); a channel bug never retries. Exhaustion falls through to the next capable channel; all-dead
+  still returns a normalized failure `Observation`. A late success records the earlier failures under the
+  reserved `structured["_executor_fallback"]` meta key (non-destructive) so the R4 log shows the trail.
+  Defaults (`timeout_s=None`, `retries=0`) preserve prior behaviour. Smoke PASS (9 asserts).
 - **`executor/router.py` — channel-selection policy (R3, TL-1.4).** Replaces the trivial
   `_default_router`: `route(action, channels)` returns a `RouteDecision` (ordered candidates,
   primary-first, + a one-line justification). Policy — recon → SSH; exploit/lateral/privesc **naming an

@@ -28,9 +28,11 @@ VulnBot is an advanced automated penetration testing framework that utilizes Lar
 
 ### Architecture (this fork)
 
-Current module layout and data flow. Gray = original VulnBot modules; blue = belief-state layer
-implemented in this fork (`pomdp/`); orange = remaining future work. Full write-up in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); editable source in
+Current module layout and data flow. Gray = original VulnBot modules; blue = implemented in this
+fork (belief-state layer `pomdp/`, R1–R4 TL-0 shared contracts, and the **R3 multi-channel executor
+`executor/`**); orange = remaining future work (standalone `BeliefAgent` loop, JSON logging, Ink
+HITL/LogView). Full write-up in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) + the executor deep-dive
+[`docs/EXECUTOR.md`](docs/EXECUTOR.md); editable source in
 [`project_schematic.excalidraw`](project_schematic.excalidraw).
 
 ![VulnBot current architecture & data flow](docs/project_schematic.png)
@@ -54,7 +56,10 @@ cp .env.example .env         # fill MSF_RPC_PASSWORD, AGENT_SSH_PUBKEY, LLM back
 The explicit-belief-state layer (`pomdp/belief_state.py`, `belief_store.py`, `priors.py`) is
 implemented (Phase 2.1–2.5: Belief Store, LLM-likelihood soft-Bayes Updater, belief-conditioned
 policy π, and reward R + offline CVSS priors); only the top-level `run_agent` control loop is
-stubbed. Described in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+stubbed. The **R3 executor** (`executor/`) is also in — one `Executor.run(action) → Observation`
+over SSH + msfrpc (+ a flag-gated MCP stub, `VULNBOT_MCP=0`), a policy router, and per-channel
+timeout/retry/fallback; see [`docs/EXECUTOR.md`](docs/EXECUTOR.md). Both described in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ---
 

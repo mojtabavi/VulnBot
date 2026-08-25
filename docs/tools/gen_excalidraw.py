@@ -116,8 +116,8 @@ def title(x, y, text, size, color):
 W, H = 232, 88
 # ---- titles ----
 title(60, 20, "VulnBot — Architecture & Data Flow", 28, GRAY_STROKE)
-title(60, 56, "Gray = current VulnBot modules   |   Blue = implemented this fork (Docker lab / POMDP belief 2.1-2.5 / octopus CLI / R1-R4 TL-0 contracts)", 14, IMPL_STROKE)
-title(60, 76, "Orange = remaining R1-R4 work (Executor channels R3, standalone BeliefAgent loop R1, JSON logging R4, Ink HITL+LogView R2/R4)", 14, FUT_STROKE)
+title(60, 56, "Gray = current VulnBot modules   |   Blue = implemented this fork (Docker lab / POMDP belief 2.1-2.5 / octopus CLI / R1-R4 TL-0 contracts + Executor R3 TL-1)", 14, IMPL_STROKE)
+title(60, 76, "Orange = remaining R1-R4 work (standalone BeliefAgent loop R1, JSON logging R4, Ink HITL+LogView R2/R4)", 14, FUT_STROKE)
 
 # ---- current nodes ----
 node("user",     60,  120, W, H, "User / Session\n(init_description,\ntarget IP)")
@@ -151,7 +151,7 @@ node("obs",     900, 470, W, H, "observation.py [TL-0]\nunified Observation O\n(
 node("events",   60, 780, W, H, "events.py [TL-0]\nJSONL event log (R4)\ndata/runs/*.jsonl", scaffold=True)
 node("control", 340, 780, W, H, "control.py [TL-0]\nloopback HITL socket\n(R2 back-channel)", scaffold=True)
 # ---- R1-R4 remaining lanes (orange placeholders) ----
-node("executor",1180, 780, W, H, "Executor + channels\nSSH/msfrpc/MCP + router\n(executor/) [R3 TL-1]", future=True)
+node("executor",1180, 780, W, H, "Executor + channels [R3 TL-1]\nSSH/msfrpc/MCP + router\ntimeout/retry/fallback (executor/)", scaffold=True)
 node("logview",  620, 780, W, H, "octopus LogView + HITL\ntails jsonl, approve/deny\n(cli/) [R2/R4 TL-4/5]", future=True)
 
 # ---- main data flow (solid gray) ----
@@ -190,10 +190,12 @@ arrow("cli", "b", "events", "t", dashed=True, color=IMPL_STROKE, label="LogView 
 arrow("control", "t", "cli", "b", dashed=True, color=IMPL_STROKE, label="HITL socket")
 arrow("events", "r", "control", "l", dashed=True, color=IMPL_STROKE)
 
+# ---- Executor layer wiring (R3 TL-1, blue: done) ----
+arrow("executor", "t", "exec", "b", dashed=True, color=IMPL_STROKE, label="run(action)->O")
+arrow("obs", "r", "executor", "l", dashed=True, color=IMPL_STROKE, label="normalizes")
+
 # ---- R1-R4 remaining lanes (dashed orange) ----
 arrow("runagent", "b", "roles", "t", dashed=True, color=FUT_STROKE, label="drives loop")
-arrow("executor", "t", "exec", "b", dashed=True, color=FUT_STROKE, label="run(action)->O")
-arrow("obs", "r", "executor", "l", dashed=True, color=FUT_STROKE, label="normalizes")
 arrow("logview", "t", "events", "r", dashed=True, color=FUT_STROKE, label="renders")
 
 doc = {
