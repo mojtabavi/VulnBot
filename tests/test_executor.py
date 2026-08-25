@@ -220,6 +220,41 @@ def test_channel_timeout_is_a_channel_error_subclass():
     assert issubclass(ChannelTimeout, ChannelError)
 
 
+# ── event wiring (R4, TL-3.1) ───────────────────────────────────────────────────
+class _RecEvents:
+    """Minimal EventLog stand-in capturing (type, fields) appends."""
+    def __init__(self):
+        self.records = []
+
+    def append(self, type, **fields):
+        self.records.append({"type": type, **fields})
+
+
+def test_executor_emits_route_decision_event():
+    ev = _RecEvents()
+    Executor([ssh(), msf()], events=ev).run(exploit_action(), "aid")
+    routes = [r for r in ev.records if r["type"] == "decision" and r.get("kind") == "route"]
+    assert len(routes) == 1
+    d = routes[0]
+    assert d["channel"] == "msfrpc"                 # ran on the routed primary
+    assert d["candidates"] == ["msfrpc", "ssh"]     # ordered candidate list recorded
+    assert d["ok"] is True and d["action_id"] == "aid"
+
+
+def test_executor_decision_records_failure_and_attempts():
+    ev = _RecEvents()
+    bad = Flaky("ssh", fail_n=9)
+    Executor([bad], router=lambda a, cs: list(cs), retries=1, events=ev).run(recon_action(), "aidf")
+    d = [r for r in ev.records if r["type"] == "decision"][0]
+    assert d["ok"] is False and d["attempts"]  # the fallback/retry trail is recorded
+
+
+def test_executor_without_events_is_silent():
+    # no events sink → no error, obs still returned
+    obs = Executor([ssh()]).run(recon_action(), "aidq")
+    assert obs.channel == "ssh"
+
+
 # ── MCP flag-gating (TL-1.6) ───────────────────────────────────────────────────
 @pytest.fixture
 def mcp_env(monkeypatch):

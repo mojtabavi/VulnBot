@@ -114,11 +114,14 @@ class Executor:
     (a reserved meta key) so the JSON event log shows the trail without corrupting the result."""
 
     def __init__(self, channels: Optional[Sequence[Channel]] = None, router: Optional[Router] = None,
-                 timeout_s: Optional[float] = None, retries: int = 0):
+                 timeout_s: Optional[float] = None, retries: int = 0, events: Optional[Any] = None):
         self.channels: List[Channel] = list(channels or [])
         self.router: Router = router or _make_default_router()
         self.timeout_s: Optional[float] = timeout_s
         self.retries: int = max(0, int(retries))
+        # Optional R4 event sink (a `utils.events.EventLog`, or anything with `.append(type, **f)`).
+        # Pass the SAME instance the BeliefAgent uses so `seq` stays a single monotonic sequence.
+        self.events: Optional[Any] = events
 
     def register(self, channel: Channel) -> "Executor":
         self.channels.append(channel)
@@ -127,12 +130,15 @@ class Executor:
     def run(self, action: Action, action_id: Optional[str] = None) -> Observation:
         aid = action_id or new_action_id()
         candidates = self.router(action, self.channels)
+        cand_names = [getattr(c, "name", "?") for c in candidates]
         if not candidates:
-            return Observation.failure(
+            obs = Observation.failure(
                 aid, "none", getattr(action, "type", "?"),
                 error=f"no channel supports action {getattr(action, 'name', '?')!r}",
                 host=getattr(action, "host", None),
             )
+            self._emit_decision(aid, action, cand_names, obs, [])
+            return obs
 
         errors: List[str] = []
         for ch in candidates:
@@ -140,14 +146,34 @@ class Executor:
             if obs is not None:
                 if errors:  # succeeded only after a retry/fallback — record the trail, don't clobber
                     _note_fallback(obs, errors)
+                self._emit_decision(aid, action, cand_names, obs, errors)
                 return obs
 
         # every candidate channel was unusable → a normalized failure O, not an exception.
-        return Observation.failure(
+        obs = Observation.failure(
             aid, candidates[-1].name if candidates else "none", getattr(action, "type", "?"),
             error="; ".join(errors) or "all channels failed",
             host=getattr(action, "host", None),
         )
+        self._emit_decision(aid, action, cand_names, obs, errors)
+        return obs
+
+    def _emit_decision(self, aid: str, action: Action, candidates: List[str],
+                       obs: Observation, errors: List[str]) -> None:
+        """Record the routing outcome as an R4 `decision` event (kind=route): the candidate order,
+        the channel that actually produced the O, whether it succeeded, and the retry/fallback trail.
+        Best-effort — a dead sink must never break a run (mirrors the agent's `_emit`)."""
+        ev = self.events
+        if ev is None:
+            return
+        try:
+            ev.append("decision", kind="route", action_id=aid,
+                      action=getattr(action, "name", None), action_type=getattr(action, "type", None),
+                      candidates=candidates, channel=obs.channel,
+                      ok=(obs.error is None), attempts=list(errors) or None,
+                      duration_ms=obs.duration_ms)
+        except Exception:  # noqa: BLE001 - logging is best-effort, never fatal
+            pass
 
     def _try_channel(self, ch: Channel, action: Action, aid: str, errors: List[str]) -> Optional[Observation]:
         """Run one channel with the timeout budget + safe retries. Returns a stamped Observation

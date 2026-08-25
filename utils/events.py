@@ -93,6 +93,31 @@ class EventLog:
             pass
         return record
 
+    # ── manifest (R4, TL-3.3) ─────────────────────────────────────────────────
+    def write_manifest(self, belief_dir: Optional[os.PathLike | str] = None,
+                       steps: Optional[int] = None, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Write `data/runs/<run_id>/manifest.json` — the ONE discoverable entry point for a run,
+        pointing at the event log and the belief trace so a reader (the LogView, a post-run tool)
+        can find both from one file. Idempotent (rewritten on each call). Best-effort: a write
+        failure is swallowed, never breaking the run."""
+        manifest: Dict[str, Any] = {
+            "run_id": self.run_id,
+            "events": self.path.name,                # "events.jsonl", relative to this dir
+            "event_count": self._seq,
+            "belief_trace": str(belief_dir) if belief_dir else None,
+            "belief_latest": str(Path(belief_dir) / "latest.json") if belief_dir else None,
+            "steps": steps,
+            "updated": time.time(),
+        }
+        if extra:
+            manifest.update(extra)
+        try:
+            (self.dir / "manifest.json").write_text(
+                json.dumps(manifest, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+        except Exception:  # noqa: BLE001 - manifest is a convenience, never fatal
+            pass
+        return manifest
+
     # ── read (tests / CLI fallback) ──────────────────────────────────────────
     def read_all(self) -> List[Dict[str, Any]]:
         """Return every record in order (skips any partial/corrupt trailing line)."""

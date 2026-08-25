@@ -149,15 +149,18 @@ class BeliefAgent:
             last_obs = obs
             self._emit_observation(step, obs)  # full Observation.to_dict() (R4 observation record)
 
+            prev_step = int(belief.get("step", 0))
             belief = self._update(belief, action, obs)
             self._save(belief, session_id)
-            self._emit_belief_events(belief)  # belief_update (prior/posterior) + llm_likelihoods (Z)
+            if int(belief.get("step", 0)) > prev_step:  # only on a REAL update (not a failed/kept one)
+                self._emit_belief_events(belief)  # belief_update (prior/posterior) + llm_likelihoods (Z)
 
             if self.goal_fn(belief, last_obs):
                 self._emit("decision", reason="goal reached", step=step)
                 break
 
         self._emit("run_end", session_id=session_id, steps=belief.get("step"))
+        self._write_manifest(session_id, belief)  # R4 TL-3.3: link events.jsonl ↔ belief trace
         return belief
 
     # ── default candidate generation ────────────────────────────────────────────
@@ -216,6 +219,18 @@ class BeliefAgent:
         except Exception:  # noqa: BLE001 - persistence is best-effort
             pass
 
+    def _write_manifest(self, session_id: str, belief: Dict[str, Any]) -> None:
+        """Ask the event log to write the run manifest linking events.jsonl ↔ the belief trace dir
+        (R4, TL-3.3). Best-effort — only if the sink supports it (a real `EventLog`)."""
+        ev = self.events
+        if ev is None or not hasattr(ev, "write_manifest"):
+            return
+        try:
+            belief_dir = self.store.run_dir(session_id) if hasattr(self.store, "run_dir") else None
+            ev.write_manifest(belief_dir=belief_dir, steps=belief.get("step"))
+        except Exception:  # noqa: BLE001 - manifest is a convenience, never fatal
+            pass
+
     def _emit(self, etype: str, **fields: Any) -> None:
         """Append an event to the log if one is attached (R4). Best-effort — never fatal."""
         ev = self.events
@@ -245,15 +260,18 @@ class BeliefAgent:
         self._emit("observation", step=step, **d)
 
     def _emit_belief_events(self, belief: Dict[str, Any]) -> None:
-        """From `meta.last_update` (written by `update_belief`): a `belief_update` record with the
-        prior/posterior over the touched factor, and an `llm_likelihoods` record with Z (R4)."""
+        """From `meta.last_update` (written by `update_belief`, TL-3.2): a `belief_update` record with
+        the prior/posterior over the touched factor, and a SELF-CONTAINED `llm_likelihoods` evidence
+        record carrying Z at the Z-point plus the belief before/after and the action that produced it
+        — so the LogView (TL-5.2) can render the evidence without cross-referencing other records (R4)."""
         lu = (belief.get("meta") or {}).get("last_update") or {}
         self._emit("belief_update", step=belief.get("step"), host=lu.get("host"),
                    factor=lu.get("factor"), key=lu.get("key"),
                    prior=lu.get("prior"), posterior=lu.get("posterior"))
         if lu.get("z") is not None:
             self._emit("llm_likelihoods", step=belief.get("step"), host=lu.get("host"),
-                       factor=lu.get("factor"), key=lu.get("key"), z=lu.get("z"))
+                       factor=lu.get("factor"), key=lu.get("key"), action=lu.get("action"),
+                       z=lu.get("z"), prior=lu.get("prior"), posterior=lu.get("posterior"))
 
 
 def _resolve_samples(samples: Optional[int]) -> int:

@@ -52,3 +52,26 @@ def test_append_mirrors_compact_marker(capsys):
 def test_event_types_cover_the_union():
     for t in ("run_start", "observation", "belief_update", "approval_request", "run_end"):
         assert t in EVENT_TYPES
+
+
+def test_write_manifest_links_events_and_belief_trace(tmp_path):
+    log = EventLog("run-m", root=tmp_path)
+    log.append("run_start")
+    log.append("observation", raw="80 open")
+    belief_dir = tmp_path / "beliefs" / "run-m"
+    m = log.write_manifest(belief_dir=belief_dir, steps=2)
+
+    import json
+    on_disk = json.loads((log.dir / "manifest.json").read_text(encoding="utf-8"))
+    assert on_disk == m
+    assert m["run_id"] == "run-m"
+    assert m["events"] == "events.jsonl" and m["event_count"] == 2 and m["steps"] == 2
+    assert m["belief_trace"] == str(belief_dir)
+    assert m["belief_latest"].endswith("latest.json")
+
+
+def test_write_manifest_is_best_effort_without_belief_dir(tmp_path):
+    log = EventLog("run-n", root=tmp_path)
+    m = log.write_manifest()  # no belief dir → null pointers, still writes
+    assert m["belief_trace"] is None and m["belief_latest"] is None
+    assert (log.dir / "manifest.json").is_file()

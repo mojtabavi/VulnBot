@@ -116,8 +116,8 @@ def title(x, y, text, size, color):
 W, H = 232, 88
 # ---- titles ----
 title(60, 20, "VulnBot — Architecture & Data Flow", 28, GRAY_STROKE)
-title(60, 56, "Gray = current VulnBot modules   |   Blue = implemented this fork (Docker lab / POMDP belief 2.1-2.5 / octopus CLI / R1-R4 TL-0 contracts + Executor R3 TL-1 + BeliefAgent loop R1 TL-2)", 14, IMPL_STROKE)
-title(60, 76, "Orange = remaining R1-R4 work (JSON logging R4 TL-3, Ink HITL+LogView R2/R4 TL-4/5)", 14, FUT_STROKE)
+title(60, 56, "Gray = current VulnBot modules   |   Blue = implemented this fork (Docker lab / POMDP belief 2.1-2.5 / octopus CLI / R1-R4 TL-0 contracts + Executor R3 TL-1 + BeliefAgent loop R1 TL-2 + JSON logging R4 TL-3)", 14, IMPL_STROKE)
+title(60, 76, "Orange = remaining R1-R4 work (Ink HITL R2 TL-4, Ink LogView R4 TL-5)", 14, FUT_STROKE)
 
 # ---- current nodes ----
 node("user",     60,  120, W, H, "User / Session\n(init_description,\ntarget IP)")

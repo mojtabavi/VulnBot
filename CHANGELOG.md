@@ -9,6 +9,21 @@ R2 interactive Ink CLI (HITL), R3 multi-channel executor, R4 JSON logging + Ink 
 ## [Unreleased] — R1–R4 interactive-POMDP hardening
 
 ### Added
+- **`EventLog.write_manifest` — per-run manifest (R4, TL-3.3 → TL-3 COMPLETE).** `data/runs/<id>/
+  manifest.json` links `events.jsonl` (+ event_count) and the belief trace (dir + latest.json) with the
+  step count; `BeliefAgent` writes it at run_end (best-effort). R4 JSON-logging persistence is done.
+  2 tests; full suite 62 pass.
+
+### Changed
+- **`llm_likelihoods` is a self-contained evidence record (R4, TL-3.2).** Now carries Z + belief
+  before/after (prior/posterior) + the action, and the belief events fire only on a real (step-advancing)
+  update — no stale re-emit when an update fails (an `error` event fires instead). Full suite 60 pass.
+
+### Added
+- **`Executor` event sink — routing decisions in the R4 log (R4, TL-3.1).** `Executor(…, events=…)`
+  appends a `decision(kind=route)` record per action (candidate order, chosen channel, ok, retry/fallback
+  trail, duration). `pentest.py` shares ONE `EventLog` across the executor + agent so `seq` stays a single
+  monotonic sequence. Best-effort. 3 tests; full suite 60 pass.
 - **`docs/POMDP_INTEGRATION.md` — finished tuple→code map (R1, TL-2.7 → TL-2 COMPLETE).** The
   ⟨S,A,O,T,Z,R,b,γ,π⟩→code table (T routing, `BeliefAgent.run` loop, R→`score` event), the
   partial-observability/self-consistency/T-effect test references, and a "Running the belief agent"
