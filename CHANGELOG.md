@@ -9,6 +9,13 @@ R2 interactive Ink CLI (HITL), R3 multi-channel executor, R4 JSON logging + Ink 
 ## [Unreleased] — R1–R4 interactive-POMDP hardening
 
 ### Added
+- **`executor/router.py` — channel-selection policy (R3, TL-1.4).** Replaces the trivial
+  `_default_router`: `route(action, channels)` returns a `RouteDecision` (ordered candidates,
+  primary-first, + a one-line justification). Policy — recon → SSH; exploit/lateral/privesc **naming an
+  MSF module** → msfrpc first, SSH kept as fallback; exploit/etc. with no module → SSH. msfrpc outranks
+  ssh for offensive types regardless of registration order. `channel_router()` becomes the `Executor`'s
+  default router (lazy import in `base.py`, no circular-import break) and mirrors each pick as a
+  best-effort `##OCTO## decision|kind=route` marker for the live view / event log. Smoke PASS (10 asserts).
 - **`executor/msf_channel.py` — msfrpc channel (R3, TL-1.3).** Channel B: drives a Metasploit
   exploit/auxiliary/post module over `pymetasploit3` and normalizes the **structured** RPC result into
   `Observation.structured` (`raw` = `Action:/Observation:` summary). Module path from

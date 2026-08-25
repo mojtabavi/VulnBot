@@ -57,9 +57,20 @@ Router = Callable[[Action, Sequence["Channel"]], List["Channel"]]
 
 
 def _default_router(action: Action, channels: Sequence[Channel]) -> List[Channel]:
-    """Trivial default (TL-1.4 replaces): every channel that supports the action, registration
-    order preserved. Keeps the facade usable + testable before the real policy lands."""
+    """Fallback router: every channel that supports the action, registration order preserved.
+    Used only if the real policy router (`executor.router`, TL-1.4) can't be imported."""
     return [c for c in channels if c.supports(action)]
+
+
+def _make_default_router() -> Router:
+    """The Executor's default: the TL-1.4 policy router (channel by action type + logged
+    justification). Lazy import avoids a circular dependency (router imports this module);
+    if it's unavailable for any reason, fall back to `_default_router` so the facade still runs."""
+    try:
+        from executor.router import channel_router
+        return channel_router()
+    except Exception:  # noqa: BLE001 - never let router import break the Executor
+        return _default_router
 
 
 class Executor:
@@ -73,7 +84,7 @@ class Executor:
 
     def __init__(self, channels: Optional[Sequence[Channel]] = None, router: Optional[Router] = None):
         self.channels: List[Channel] = list(channels or [])
-        self.router: Router = router or _default_router
+        self.router: Router = router or _make_default_router()
 
     def register(self, channel: Channel) -> "Executor":
         self.channels.append(channel)
