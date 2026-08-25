@@ -103,3 +103,106 @@ def test_belief_agent_loop_advances_and_persists(tmp_path):
     belief = agent.run("run-x", hosts=["10.0.0.5"], vuln_ids=["CVE-2011-2523"])
     assert belief["step"] >= 1
     assert len(store.steps("run-x")) >= 2  # b0 + at least one update persisted
+
+
+# ── HITL approval gate (R2, TL-4.4) ──────────────────────────────────────────────
+class _Fx:
+    def __init__(self):
+        self.ran = []
+
+    def run(self, action, action_id=None):
+        self.ran.append(action.name)
+        return Observation(action_id="x", channel="ssh", action_type=action.type, host=action.host, raw="out")
+
+
+class _Ctrl:
+    """Scripted control server: `awaits` feeds blocking recv, `polls` feeds the non-blocking poll."""
+    def __init__(self, awaits=None, polls=None, connected=True):
+        self.awaits = list(awaits or [])
+        self.polls = list(polls or [])
+        self.sent = []
+        self._c = connected
+
+    def connected(self):
+        return self._c
+
+    def send(self, o):
+        self.sent.append(o)
+        return True
+
+    def recv(self, timeout=None):
+        if timeout == 0 or timeout == 0.0:
+            return self.polls.pop(0) if self.polls else None
+        return self.awaits.pop(0) if self.awaits else None
+
+
+def _exploit_cands(_b):
+    return [Action(name="pop", type=ActionType.EXPLOIT, host="h", params={"vuln": "x"})]
+
+
+def _recon_cands(_b):
+    return [Action(name="scan", type=ActionType.RECON, host="h", tool="nmap")]
+
+
+def _mk(control, tmp_path, **kw):
+    return BeliefAgent(_Fx(), lambda _p: _z(0.3), store=BeliefStore(root=tmp_path),
+                       control=control, max_steps=kw.pop("max_steps", 1), **kw)
+
+
+def test_gate_high_impact_approve_runs(tmp_path):
+    c = _Ctrl(awaits=[{"cmd": "approve"}])
+    a = _mk(c, tmp_path)
+    a.run("g1", hosts=["h"], candidates_fn=_exploit_cands)
+    assert a.executor.ran == ["pop"]
+    assert any(s.get("event") == "approval_request" for s in c.sent)
+
+
+def test_gate_deny_skips(tmp_path):
+    c = _Ctrl(awaits=[{"cmd": "deny"}])
+    a = _mk(c, tmp_path, max_steps=1)
+    a.run("g2", hosts=["h"], candidates_fn=_exploit_cands)
+    assert a.executor.ran == []
+
+
+def test_gate_quit_stops(tmp_path):
+    c = _Ctrl(awaits=[{"cmd": "quit"}])
+    a = _mk(c, tmp_path, max_steps=3)
+    b = a.run("g3", hosts=["h"], candidates_fn=_exploit_cands)
+    assert a.executor.ran == [] and b["step"] == 0
+
+
+def test_gate_step_arms_step_mode(tmp_path):
+    c = _Ctrl(awaits=[{"cmd": "step"}])
+    a = _mk(c, tmp_path)
+    a.run("g4", hosts=["h"], candidates_fn=_exploit_cands)
+    assert a.executor.ran == ["pop"] and a.step_mode is True
+
+
+def test_gate_low_impact_auto_approves(tmp_path):
+    c = _Ctrl()
+    a = _mk(c, tmp_path)
+    a.run("g5", hosts=["h"], candidates_fn=_recon_cands)
+    assert a.executor.ran == ["scan"]
+    assert not any(s.get("event") == "approval_request" for s in c.sent)
+
+
+def test_gate_step_mode_gates_recon(tmp_path):
+    c = _Ctrl(awaits=[{"cmd": "approve"}])
+    a = _mk(c, tmp_path, step=True)
+    a.run("g6", hosts=["h"], candidates_fn=_recon_cands)
+    assert any(s.get("event") == "approval_request" for s in c.sent)
+
+
+def test_gate_pause_resume_between_steps(tmp_path):
+    c = _Ctrl(awaits=[{"cmd": "resume"}], polls=[{"cmd": "pause"}])
+    a = _mk(c, tmp_path)
+    a.run("g7", hosts=["h"], candidates_fn=_recon_cands)
+    assert {"event": "paused"} in c.sent and {"event": "resumed"} in c.sent
+    assert a.executor.ran == ["scan"]
+
+
+def test_gate_disconnected_control_never_blocks(tmp_path):
+    c = _Ctrl(connected=False)
+    a = _mk(c, tmp_path)
+    a.run("g8", hosts=["h"], candidates_fn=_exploit_cands)
+    assert a.executor.ran == ["pop"]  # high-impact but no client → auto-approve

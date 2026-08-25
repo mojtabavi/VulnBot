@@ -9,6 +9,24 @@ R2 interactive Ink CLI (HITL), R3 multi-channel executor, R4 JSON logging + Ink 
 ## [Unreleased] — R1–R4 interactive-POMDP hardening
 
 ### Added
+- **`RunView` paused / awaiting-approval state (R2, TL-4.5 → TL-4 COMPLETE).** RunView renders an
+  awaiting-approval or paused status line from `paused`/`awaiting` props. **R2 interactive HITL is done.**
+  typecheck + selftest PASS.
+- **Python HITL approval gate (R2, TL-4.4).** `BeliefAgent(control, step)` wires a `ControlServer` into
+  the loop: high-impact (exploit/lateral/privesc) or step-mode actions send `approval_request` and block —
+  approve runs, deny skips+logs, quit stops, step arms step-through, pause/resume acked; a between-steps
+  poll handles pause/quit. No client → auto (never blocks). `pentest.py --agent` opens the server + `--step`
+  flag. 8 pytest + 12-assert smoke; full suite 70 pass.
+- **`p/r/s/q` run keybinds (R2, TL-4.3).** During a live run the Repl sends pause/resume/step/quit command
+  frames over the control socket. typecheck + selftest PASS.
+- **`cli/src/ui/ApprovalPrompt.tsx` + Repl HITL wiring (R2, TL-4.2).** The Repl connects a `ControlClient`
+  on the `control|port=N` marker; `approval_request` frames render an approve/deny overlay (default deny),
+  and the choice is relayed back over the socket. `paused`/`resumed` tracked for RunView. typecheck +
+  selftest PASS.
+- **`cli/src/control.ts` — HITL control-socket client (R2, TL-4.1).** `ControlClient` over node `net`:
+  newline-JSON framing matching `utils/control.py`, event/connect/close/error callbacks,
+  approve/deny/pause/resume/step/quit senders, best-effort. `parseControlPort` reads the
+  `##OCTO## control|port=N` marker. selftest: loopback round-trip + port parse. typecheck + selftest PASS.
 - **`EventLog.write_manifest` — per-run manifest (R4, TL-3.3 → TL-3 COMPLETE).** `data/runs/<id>/
   manifest.json` links `events.jsonl` (+ event_count) and the belief trace (dir + latest.json) with the
   step count; `BeliefAgent` writes it at run_end (best-effort). R4 JSON-logging persistence is done.

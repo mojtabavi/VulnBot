@@ -18,7 +18,17 @@ function verbFor(phase: string | undefined): string {
  *  a phase tree with per-phase elapsed timers + step checklist, ⚠ warnings, and an always-on tail of
  *  the streaming log. Ticks on its own clock so timers advance between lines. Purely presentational —
  *  state comes from parseRunLine (see ../run.ts). */
-export default function RunView({ state }: { state: RunState }): React.ReactElement {
+export default function RunView({
+  state,
+  paused = false,
+  awaiting = null,
+}: {
+  state: RunState;
+  /** R2 HITL: the run is paused (user pressed `p`) — shown until resume. */
+  paused?: boolean;
+  /** R2 HITL: an action is blocked awaiting approval (its label), or null. */
+  awaiting?: { action: string; type?: string } | null;
+}): React.ReactElement {
   const [i, setI] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -47,6 +57,21 @@ export default function RunView({ state }: { state: RunState }): React.ReactElem
           {failed ? '✗ pentest run' : `${spin} ${verb}…`} <Text color="gray">({meta})</Text>
         </Text>
       </Box>
+
+      {awaiting ? (
+        <Box>
+          <Text color="yellowBright" wrap="truncate-end">
+            {'  '}⏸ awaiting approval — {awaiting.type ? `[${awaiting.type}] ` : ''}{awaiting.action}
+            <Text color="gray"> (a approve · d deny)</Text>
+          </Text>
+        </Box>
+      ) : paused ? (
+        <Box>
+          <Text color="yellow" wrap="truncate-end">
+            {'  '}⏸ paused <Text color="gray">(r to resume · s step · q quit)</Text>
+          </Text>
+        </Box>
+      ) : null}
 
       {state.llmWait ? (
         // Transient-API retry: the LLM endpoint is flapping (503 overloaded / 5xx / timeout / 429)

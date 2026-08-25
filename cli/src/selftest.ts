@@ -286,5 +286,47 @@ assert.strictEqual(classifyLog('2026-08-23 22:18:42 | DEBUG | x:y:1 - noisy'), n
 assert.strictEqual(classifyLog('2026-08-23 22:18:42 | INFO | actions.write_code:run:19 - next_task: recon the host')!.kind, 'instruction', 'classifyLog: next_task → instruction');
 assert.strictEqual(classifyLog('2026-08-23 22:18:42 | ERROR | x:y:1 - boom')!.kind, 'error', 'classifyLog: ERROR → error');
 
+// control socket (R2 TL-4.1): marker port parse + newline-JSON frame round-trip over loopback
+const { parseControlPort, ControlClient } = await import('./control.js');
+assert.strictEqual(parseControlPort('##OCTO## control|port=54321'), 54321, 'parseControlPort reads the port');
+assert.strictEqual(parseControlPort('##OCTO## event|type=run_start|seq=1'), null, 'parseControlPort ignores non-control markers');
+assert.strictEqual(parseControlPort('plain log line'), null, 'parseControlPort ignores non-markers');
+
+await (async () => {
+  const net = await import('node:net');
+  const received: unknown[] = [];
+  const evParts: string[] = [];
+  const server = net.createServer((sock) => {
+    sock.setEncoding('utf8');
+    let buf = '';
+    sock.on('data', (c: string) => {
+      buf += c;
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        if (line.trim()) received.push(JSON.parse(line));
+      }
+    });
+    // agent → CLI: send an approval_request frame
+    sock.write(JSON.stringify({ event: 'approval_request', action: 'exploit vsftpd', risk: 'high' }) + '\n');
+  });
+  await new Promise<void>((res) => server.listen(0, '127.0.0.1', () => res()));
+  const port = (server.address() as import('node:net').AddressInfo).port;
+
+  await new Promise<void>((resolve, reject) => {
+    const client: InstanceType<typeof ControlClient> = new ControlClient({
+      onConnect: () => { client.approve(); client.send('step'); },
+      onEvent: (ev) => { evParts.push(ev.event); },
+      onError: reject,
+    });
+    client.connect(port);
+    setTimeout(() => { client.close(); server.close(); resolve(); }, 150);
+  });
+
+  assert.deepStrictEqual(evParts, ['approval_request'], 'client received the agent event frame');
+  assert.strictEqual((received[0] as { cmd: string }).cmd, 'approve', 'agent got the approve command frame');
+  assert.strictEqual((received[1] as { cmd: string }).cmd, 'step', 'agent got the step command frame');
+})();
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('SELFTEST PASS');

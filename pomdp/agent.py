@@ -53,6 +53,9 @@ _ROOT_BELIEF_STOP = 0.5
 # Substrings in raw tool output that strongly indicate root on the target.
 _ROOT_MARKERS = ("uid=0", "root@", "# id", "gained root", "root shell")
 
+# Action types high-impact enough to gate on human approval by default (R2, TL-4.4).
+_HIGH_IMPACT = (ActionType.EXPLOIT, ActionType.LATERAL, ActionType.PRIVESC)
+
 
 class BeliefAgent:
     """Runs the POMDP belief loop over an `Executor`.
@@ -76,6 +79,8 @@ class BeliefAgent:
         store: Optional[BeliefStore] = None,
         events: Optional[Any] = None,
         approve: Optional[ApproveFn] = None,
+        control: Optional[Any] = None,
+        step: bool = False,
         max_steps: int = 20,
         samples: Optional[int] = None,
         goal_fn: Optional[GoalFn] = None,
@@ -86,7 +91,11 @@ class BeliefAgent:
         self.belief_llm = belief_llm
         self.store = store or BeliefStore()
         self.events = events
+        # HITL: `approve` is the simple bool seam (tests); `control` is a `utils.control.ControlServer`
+        # (or duck-typed connected()/send()/recv()) for the real octopus back-channel (R2, TL-4.4).
         self.approve = approve
+        self.control = control
+        self.step_mode = bool(step)  # step-through: gate EVERY action, not just high-impact ones
         self.max_steps = max(1, int(max_steps))
         self.samples = _resolve_samples(samples)
         self.goal_fn = goal_fn or _default_goal
@@ -125,6 +134,10 @@ class BeliefAgent:
         last_obs: Optional[Any] = None
 
         for step in range(self.max_steps):
+            if self._poll_control() == "quit":  # a between-steps pause/quit from the CLI (R2)
+                self._emit("decision", reason="quit (user)", step=step)
+                break
+
             candidates = self._safe_candidates(gen, belief)
             if not candidates:
                 self._emit("decision", reason="no candidate actions", step=step)
@@ -137,13 +150,12 @@ class BeliefAgent:
             self._emit("score", step=step, action=action.name, action_type=action.type,
                        score=self._score(action, belief))  # R for the chosen action (belief before)
 
-            if self.approve is not None:  # HITL gate present → announce + record the decision
-                self._emit("approval_request", step=step, action=action.name,
-                           action_type=action.type, host=action.host)
-                approved = self._approved(action)
-                self._emit("approval_result", step=step, action=action.name, approved=approved)
-                if not approved:
-                    continue  # denied → skip this action, keep the belief, try again next step
+            decision = self._gate(action, step)  # "approve" | "deny" | "quit" (R2, TL-4.4)
+            if decision == "quit":
+                self._emit("decision", reason="quit (user)", step=step)
+                break
+            if decision == "deny":
+                continue  # denied → skip this action, keep the belief, try again next step
 
             obs = self._execute(action)
             last_obs = obs
@@ -187,13 +199,119 @@ class BeliefAgent:
         except Exception:  # noqa: BLE001 - a bad generator must not kill the loop
             return []
 
-    def _approved(self, action: Action) -> bool:
-        if self.approve is None:
-            return True
+    # ── HITL gate (R2, TL-4.4) ──────────────────────────────────────────────────
+    def _needs_approval(self, action: Action) -> bool:
+        """Gate an action on human approval when it is high-impact (exploit/lateral/privesc) or when
+        step-through mode is on (gate everything)."""
+        return self.step_mode or getattr(action, "type", None) in _HIGH_IMPACT
+
+    def _gate(self, action: Action, step: int) -> str:
+        """Decide whether to run `action`: returns "approve" | "deny" | "quit".
+
+        Precedence: the simple `approve` bool callback (tests) wins if set; otherwise the control
+        socket gates high-impact/step actions by blocking on a reply. No connected front-end, or
+        no approval needed, ⇒ "approve" (auto) — a missing CLI must never block a run."""
+        if self.approve is not None:  # legacy bool seam (tests): approve/deny only
+            try:
+                approved = bool(self.approve(action))
+            except Exception:  # noqa: BLE001 - a broken gate must not block the run; fail open
+                approved = True
+            self._emit("approval_request", step=step, action=action.name,
+                       action_type=action.type, host=action.host)
+            self._emit("approval_result", step=step, action=action.name, approved=approved)
+            return "approve" if approved else "deny"
+
+        if not self._ctrl_connected() or not self._needs_approval(action):
+            return "approve"  # no front-end, or a low-impact action → proceed without blocking
+
+        risk = "high" if getattr(action, "type", None) in _HIGH_IMPACT else "normal"
+        self._emit("approval_request", step=step, action=action.name,
+                   action_type=action.type, host=action.host, risk=risk)
+        self._ctrl_send({"event": "approval_request", "action": action.name,
+                         "type": action.type, "host": action.host, "risk": risk})
+        decision = self._await_decision()
+        self._emit("approval_result", step=step, action=action.name,
+                   approved=(decision == "approve"), decision=decision)
+        return decision
+
+    def _await_decision(self) -> str:
+        """Block on control replies until the human approves/denies/quits. `step` runs this one then
+        arms step-through; `pause`/`resume` are acknowledged and keep waiting. A dropped client
+        (recv None) ⇒ "approve" (auto) so a lost front-end never wedges the run."""
+        while True:
+            frame = self._ctrl_recv(timeout=None)
+            if frame is None:
+                return "approve"  # client gone → proceed
+            cmd = (frame or {}).get("cmd")
+            if cmd == "approve":
+                return "approve"
+            if cmd == "deny":
+                return "deny"
+            if cmd == "quit":
+                return "quit"
+            if cmd == "step":
+                self.step_mode = True
+                return "approve"  # run this one; every subsequent action will gate too
+            if cmd == "pause":
+                self._ctrl_send({"event": "paused"})
+                continue
+            if cmd == "resume":
+                self._ctrl_send({"event": "resumed"})
+                continue
+            # unknown command → keep waiting for a decisive one
+
+    def _poll_control(self) -> Optional[str]:
+        """Between steps: non-blocking check for a `pause`/`quit`/`step` command. A `pause` blocks
+        here until `resume`/`quit`; returns "quit" to stop the run, else None. Best-effort."""
+        if not self._ctrl_connected():
+            return None
+        frame = self._ctrl_recv(timeout=0.0)  # non-blocking poll
+        if frame is None:
+            return None
+        cmd = (frame or {}).get("cmd")
+        if cmd == "quit":
+            return "quit"
+        if cmd == "step":
+            self.step_mode = True
+            return None
+        if cmd == "pause":
+            self._ctrl_send({"event": "paused"})
+            while True:  # hold here until told to continue
+                f = self._ctrl_recv(timeout=None)
+                if f is None:
+                    return None  # client gone → resume automatically
+                c = (f or {}).get("cmd")
+                if c == "resume":
+                    self._ctrl_send({"event": "resumed"})
+                    return None
+                if c == "quit":
+                    return "quit"
+                if c == "step":
+                    self.step_mode = True
+                    return None
+        return None
+
+    # guarded control-socket shims (duck-typed; a bad/missing control never breaks the run)
+    def _ctrl_connected(self) -> bool:
+        ctrl = self.control
+        if ctrl is None:
+            return False
         try:
-            return bool(self.approve(action))
-        except Exception:  # noqa: BLE001 - a broken gate must not block the run; fail open
-            return True
+            return bool(ctrl.connected())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _ctrl_send(self, obj: Dict[str, Any]) -> None:
+        try:
+            self.control.send(obj)  # type: ignore[union-attr]
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _ctrl_recv(self, timeout: Optional[float]) -> Optional[Dict[str, Any]]:
+        try:
+            return self.control.recv(timeout)  # type: ignore[union-attr]
+        except Exception:  # noqa: BLE001
+            return None
 
     def _execute(self, action: Action) -> Any:
         """Run the action through the Executor. The R3 Executor never raises, but guard anyway
@@ -303,7 +421,7 @@ def run_agent(executor: Any, belief_llm: BeliefLLM, session_id: str, **kwargs: A
     Splits BeliefAgent construction kwargs from `.run(...)` kwargs so a caller can pass both
     in one flat call. Returns the final belief.
     """
-    ctor_keys = ("store", "events", "approve", "max_steps", "samples", "goal_fn")
+    ctor_keys = ("store", "events", "approve", "control", "step", "max_steps", "samples", "goal_fn")
     ctor = {k: kwargs.pop(k) for k in ctor_keys if k in kwargs}
     agent = BeliefAgent(executor, belief_llm, **ctor)
     return agent.run(session_id, **kwargs)

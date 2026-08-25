@@ -17,6 +17,8 @@ import SlashMenu, { matchCommands } from './SlashMenu.js';
 import BeliefPanel from './BeliefPanel.js';
 import RunView from './RunView.js';
 import LogLine from './LogLine.js';
+import ApprovalPrompt, { type ApprovalRequest } from './ApprovalPrompt.js';
+import { ControlClient, parseControlPort } from '../control.js';
 
 type Item =
   | { kind: 'line'; text: string }
@@ -64,6 +66,11 @@ export default function Repl({
   // Live run view (phase tree + timers). runStateRef mirrors `run` so onExit can summarize it.
   const [run, setRun] = useState<RunState | null>(null);
   const runStateRef = useRef<RunState | null>(null);
+  // R2 HITL: the control-socket client (connected when the agent announces its port), the pending
+  // approval request (renders the ApprovalPrompt overlay), and the paused flag (RunView, TL-4.5).
+  const controlRef = useRef<ControlClient | null>(null);
+  const [approval, setApproval] = useState<ApprovalRequest | null>(null);
+  const [paused, setPaused] = useState(false);
 
   // Setup chose the Claude subscription → kick off /login automatically (opens the browser),
   // then the model + thinking pickers follow. Runs once.
@@ -221,6 +228,46 @@ export default function Repl({
     }
   }
 
+  // ── R2 HITL control socket ────────────────────────────────────────────────
+  function connectControl(port: number): void {
+    const client = new ControlClient({
+      onEvent: (ev) => {
+        if (ev.event === 'approval_request') {
+          setApproval({
+            action: String(ev.action ?? 'action'),
+            risk: typeof ev.risk === 'string' ? ev.risk : undefined,
+            host: typeof ev.host === 'string' ? ev.host : undefined,
+            type: typeof ev.type === 'string' ? ev.type : undefined,
+          });
+        } else if (ev.event === 'paused') {
+          setPaused(true);
+        } else if (ev.event === 'resumed') {
+          setPaused(false);
+        }
+      },
+      onClose: () => {
+        controlRef.current = null;
+        setApproval(null);
+        setPaused(false);
+      },
+    });
+    client.connect(port);
+    controlRef.current = client;
+  }
+
+  function decideApproval(d: 'approve' | 'deny'): void {
+    controlRef.current?.send(d);
+    setApproval(null);
+    pushLines([`approval: ${d}`]);
+  }
+
+  function closeControl(): void {
+    controlRef.current?.close();
+    controlRef.current = null;
+    setApproval(null);
+    setPaused(false);
+  }
+
   // ── real pentest run: spawn the Python pipeline + stream its output into the transcript ──
   async function startRun(rawDescription: string): Promise<void> {
     if (runRef.current) {
@@ -258,6 +305,10 @@ export default function Repl({
     runStateRef.current = emptyRunState(Date.now());
     setRun(runStateRef.current);
     const feed = (line: string): void => {
+      // R2 HITL: the agent announces its control port via a `##OCTO## control|port=N` marker — connect
+      // the back-channel once, then relay approval frames to the ApprovalPrompt overlay.
+      const port = parseControlPort(line);
+      if (port && !controlRef.current) connectControl(port);
       // Markers drive the live status box (RunView). Every non-marker line is ALSO streamed into the
       // <Static> transcript as a styled Ink element, so the full run log scrolls in the terminal's
       // own scrollback and stays selectable/copyable (parseRunLine still counts it + keeps the tail).
@@ -281,6 +332,7 @@ export default function Repl({
         runStateRef.current = null;
         setRun(null);
         setRunning(false);
+        closeControl(); // tear down the HITL back-channel with the run
         if (!fin) {
           pushLines([code === null ? 'run stopped.' : `run finished (exit ${code}).`]);
           return;
@@ -336,7 +388,14 @@ export default function Repl({
       }
       return exit();
     }
-    if (picker || oauth) return; // an overlay owns the keyboard (its own useInput handles keys)
+    if (picker || oauth || approval) return; // an overlay owns the keyboard (its own useInput handles keys)
+    // R2 HITL keybinds while a run streams: pause / resume / step / quit over the control socket.
+    if (running && controlRef.current?.connected) {
+      if (ch === 'p' || ch === 'P') { controlRef.current.pause(); pushLines(['⏸ pause requested']); return; }
+      if (ch === 'r' || ch === 'R') { controlRef.current.resume(); pushLines(['▶ resume requested']); return; }
+      if (ch === 's' || ch === 'S') { controlRef.current.step(); pushLines(['⏭ step']); return; }
+      if (ch === 'q' || ch === 'Q') { controlRef.current.quit(); pushLines(['✋ quit requested']); return; }
+    }
     if (running) return; // a pentest is streaming — ignore input (ctrl+c stops it)
     if (busy) return; // ignore input while a command runs (ctrl+c still exits)
     if (key.ctrl && ch === 'l') {
@@ -406,7 +465,15 @@ export default function Repl({
           )
         }
       </Static>
-      {run ? <RunView state={run} /> : busy ? <Spinner label={label} /> : null}
+      {run ? (
+        <RunView
+          state={run}
+          paused={paused}
+          awaiting={approval ? { action: approval.action, type: approval.type } : null}
+        />
+      ) : busy ? (
+        <Spinner label={label} />
+      ) : null}
       {picker ? (
         <FilterSelect
           title={picker.title}
@@ -421,6 +488,7 @@ export default function Repl({
       {oauth ? (
         <TextField label="paste the authorization code (then Enter):" onSubmit={submitOauthCode} />
       ) : null}
+      {approval ? <ApprovalPrompt req={approval} onDecide={decideApproval} /> : null}
       <Box borderStyle="round" borderColor={busy ? 'gray' : 'magenta'} paddingX={1}>
         <Text color="magenta">❯ </Text>
         {busy || running ? (
