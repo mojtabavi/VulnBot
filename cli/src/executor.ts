@@ -173,7 +173,7 @@ export function runPentest(
   onExit: (code: number | null) => void,
   agent: boolean = false,
 ): PentestRun {
-  // Run pentest.py directly, NOT `cli.py vulnbot` — cli.py eagerly imports the FastAPI server +
+  // Run pentest.py directly, NOT `cli.py octopus` — cli.py eagerly imports the FastAPI server +
   // RAG/langchain stack, which isn't needed for a run (enable_rag: false).
   const args = ['pentest.py', '-m', String(maxSteps), '--no-resume', '--description', description];
   if (agent) args.push('--agent');

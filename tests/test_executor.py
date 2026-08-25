@@ -260,8 +260,8 @@ def test_executor_without_events_is_silent():
 def mcp_env(monkeypatch):
     """Helper to toggle the MCP flag + server/version env within a test."""
     def _set(enabled=False, server=None, version=None):
-        monkeypatch.setenv("VULNBOT_MCP", "1" if enabled else "0")
-        for k, v in (("VULNBOT_MCP_SERVER", server), ("VULNBOT_MCP_VERSION", version)):
+        monkeypatch.setenv("OCTOPUS_MCP", "1" if enabled else "0")
+        for k, v in (("OCTOPUS_MCP_SERVER", server), ("OCTOPUS_MCP_VERSION", version)):
             monkeypatch.delenv(k, raising=False)
             if v is not None:
                 monkeypatch.setenv(k, v)

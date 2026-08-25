@@ -24,7 +24,7 @@ the Executor is the only thing that touches Kali.
 
 TL boundaries: TL-2.1 (this file) is the loop + default candidate generation + goal check +
 the event/HITL seams. TL-2.2 points `belief_state.run_agent` here. TL-2.3 wires
-`VULNBOT_Z_SAMPLES`. TL-2.4 fills in the full event set. TL-4.4 fills the HITL gate.
+`OCTOPUS_Z_SAMPLES`. TL-2.4 fills in the full event set. TL-4.4 fills the HITL gate.
 """
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ class BeliefAgent:
       events:     optional event log with a best-effort `.append(type, **fields)` (R4, TL-2.4).
       approve:    optional HITL gate `Action -> bool` (default: allow everything; TL-4.4).
       max_steps:  hard cap on loop iterations (keeps a run bounded).
-      samples:    self-consistency Z samples per update (TL-2.3 reads `VULNBOT_Z_SAMPLES`).
+      samples:    self-consistency Z samples per update (TL-2.3 reads `OCTOPUS_Z_SAMPLES`).
       goal_fn:    optional stop predicate `(belief, last_obs) -> bool` (default: root-reached).
     """
 
@@ -394,7 +394,7 @@ class BeliefAgent:
 
 def _resolve_samples(samples: Optional[int]) -> int:
     """Z self-consistency sample count. Explicit arg wins; else the shared
-    `belief_state.z_samples()` (`VULNBOT_Z_SAMPLES`, TL-2.3). Clamped to ≥ 1."""
+    `belief_state.z_samples()` (`OCTOPUS_Z_SAMPLES`, TL-2.3). Clamped to ≥ 1."""
     if samples is not None:
         return max(1, int(samples))
     return z_samples()

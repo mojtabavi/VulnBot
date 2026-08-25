@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install VulnBot's own requirements if present, then the clients the belief
+# Install Octopus's own requirements if present, then the clients the belief
 # agent needs to reach kali (msfrpc + ssh).
 COPY requirements.txt* ./
 RUN pip install --no-cache-dir -r requirements.txt || true

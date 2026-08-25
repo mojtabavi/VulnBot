@@ -48,7 +48,7 @@ rag/
                                 files2docs_in_thread, splitter helpers
 ```
 
-### Public API the rest of VulnBot calls
+### Public API the rest of Octopus calls
 
 - **`rag.kb.api.kb_doc_api.search_docs(query, knowledge_base_name, top_k, score_threshold, …)`** — the
   retrieval function. Called by `server/chat/chat.py::_chat` (via `run_in_threadpool`) and exposed as
@@ -71,13 +71,13 @@ building the knowledge bases (launched by `cli.py start` / `startup.py`).
 
 ---
 
-## 7.2 `experiment/` — baselines (comparison only, NOT the VulnBot pipeline)
+## 7.2 `experiment/` — baselines (comparison only, NOT the Octopus pipeline)
 
 **Source:** [`experiment/`](../../experiment)
 
 Self-contained reimplementations of two competing pentest agents, used only to **benchmark** against
-VulnBot. Neither is invoked by `pentest.py`/`startup.py` — they are separate `cli.py` subcommands. Both use
-their own **in-memory** conversation store (`llm_ollama.py`) rather than the VulnBot MySQL session layer.
+Octopus. Neither is invoked by `pentest.py`/`startup.py` — they are separate `cli.py` subcommands. Both use
+their own **in-memory** conversation store (`llm_ollama.py`) rather than the Octopus MySQL session layer.
 
 ![Baselines — PentestGPT PTT + BaseGPT](diagrams/07-baselines.png)
 
@@ -93,6 +93,6 @@ their own **in-memory** conversation store (`llm_ollama.py`) rather than the Vul
 | [`experiment/extract_code.py`](../../experiment/extract_code.py) | `ExtractCode` — turn a "next task" into shell commands; calls `server.chat.chat._chat` (the shared LLM choke point). |
 
 **Entry points** (registered in `cli.py`): `cli.py pentestgpt` → `PentestGPT(15, ollama).main()`; `cli.py
-base` → `BaseGPT(15, ollama).main()`. Both reuse VulnBot's `actions/` for execution and `_chat` for the LLM,
-but do **not** participate in the multi-agent VulnBot planning/reasoning pipeline — they exist purely for
+base` → `BaseGPT(15, ollama).main()`. Both reuse Octopus's `actions/` for execution and `_chat` for the LLM,
+but do **not** participate in the multi-agent Octopus planning/reasoning pipeline — they exist purely for
 comparison.

@@ -1,6 +1,6 @@
-# VulnBot — Architecture Reference
+# Octopus — Architecture Reference
 
-![VulnBot current architecture & data flow](project_schematic.png)
+![Octopus current architecture & data flow](project_schematic.png)
 
 *Source: [`../project_schematic.excalidraw`](../project_schematic.excalidraw) — gray = current
 modules, orange = future belief-state attachment points (placeholders only).*
@@ -12,9 +12,9 @@ or POMDP implementation — the future belief modules are only *located*, not bu
 
 ---
 
-## 1. What VulnBot Is
+## 1. What Octopus Is
 
-VulnBot is a multi-agent, LLM-driven autonomous penetration-testing framework. One run
+Octopus is a multi-agent, LLM-driven autonomous penetration-testing framework. One run
 walks three sequential **phases** — Reconnaissance → Vulnerability Scanning →
 Exploitation — each phase driven by a role agent that plans a small task graph and then
 executes tasks by generating shell commands and running them on a remote **Kali Linux**
@@ -57,7 +57,7 @@ facade over pluggable channels, so the belief loop always receives a normalized 
 | Facade | `executor/base.py` | `Channel` ABC + `Executor`; routes an action to ordered candidates, times each in a daemon-thread budget (`timeout_s` → `ChannelTimeout`), retries a plain `ChannelError` (never a timeout — non-idempotent-exploit safety), falls back to the next capable channel, records the trail in `structured["_executor_fallback"]`, and **never raises** (all-dead → a failure `Observation`) |
 | Channel A — SSH | `executor/ssh_channel.py` | arbitrary shell tools via the reused `ShellManager`/`RemoteShell`; stdout → `Observation.raw` |
 | Channel B — msfrpc | `executor/msf_channel.py` | Metasploit modules over `pymetasploit3`; structured RPC result → `Observation.structured` |
-| Channel C — MCP | `executor/mcp_channel.py` | optional, **flag-gated `VULNBOT_MCP=0`**; a no-op until a server+version is verified — SSH+msfrpc are sufficient alone |
+| Channel C — MCP | `executor/mcp_channel.py` | optional, **flag-gated `OCTOPUS_MCP=0`**; a no-op until a server+version is verified — SSH+msfrpc are sufficient alone |
 | Router | `executor/router.py` | picks per action type + logs the justification (recon→ssh; exploit/lateral/privesc naming an MSF module→msfrpc first, ssh fallback; no module→ssh) as a `##OCTO## decision|kind=route` marker |
 
 This R3 executor is **distinct** from the legacy `actions/execute_task.py` pipeline path (§4); the
@@ -69,7 +69,7 @@ control loop the whole thesis is about: `new_belief` + `priors.seed_vuln_priors`
 `BeliefStore.save` until a goal predicate or the step cap. It imports the belief MATH, never re-implements
 it, and never branches on S. `belief_state.run_agent` now delegates here (lazy import); the loop is
 selected by `pentest.py --agent` / octopus `/run --agent` and emits the full R4 event set through an
-attached `EventLog`. Self-consistency (`VULNBOT_Z_SAMPLES`) and the T-effect are locked by
+attached `EventLog`. Self-consistency (`OCTOPUS_Z_SAMPLES`) and the T-effect are locked by
 `tests/test_agent.py`; the tuple→code map is `docs/POMDP_INTEGRATION.md`.
 
 **TL-3/4/5 — done.** JSON logging is wired end-to-end (R4): the `BeliefAgent` and the `Executor` share one
@@ -101,7 +101,7 @@ string (advisory tool list for the LLM), and a phase-specific prompt pair.
 - **Output:** side effects — a persisted `Plan` with executed `Task`s, plus a chained
   call into the next role.
 - **Phase chaining:** `Collector.put_message` → `Scanner.run`, `Scanner.put_message` →
-  `Exploiter.run`. So a single `vulnbot` command runs all three phases in order, each
+  `Exploiter.run`. So a single `octopus` command runs all three phases in order, each
   phase producing its own `Plan` and appending that plan's id to `history_planner_ids`.
 
 ### 2.2 `Role` base loop — `roles/role.py`
@@ -191,7 +191,7 @@ algorithm; raises on cyclic dependencies).
 
 ### 2.11 Baselines — `experiment/`
 `pentestgpt` (PentestGPT reimplementation) and `base` (single-agent "CTF player") are
-comparison baselines, **not** part of the VulnBot pipeline. They share the Executor/shell
+comparison baselines, **not** part of the Octopus pipeline. They share the Executor/shell
 layer but have their own agent/session handling (`experiment/llm_ollama.py`).
 
 ---
@@ -199,7 +199,7 @@ layer but have their own agent/session handling (`experiment/llm_ollama.py`).
 ## 3. Data Flow (plain language)
 
 ```
-             ┌─────────────────────────── one `vulnbot` run ───────────────────────────┐
+             ┌─────────────────────────── one `octopus` run ───────────────────────────┐
              │                                                                          │
  user  ──►  Session(init_description, role=Collector)                                   │
              │                                                                          │
@@ -250,13 +250,13 @@ All commands go through `cli.py` (a `click` group).
 |---------|---------|---------|
 | `python cli.py init` | `cli.py::init` | Create data dirs, create MySQL tables, generate default config YAMLs. |
 | `python cli.py start -a` | `startup.py::main` | Start the RAG API (FastAPI) and/or WebUI (Streamlit). `--api` / `-w` / `-a`. |
-| `python cli.py vulnbot -m {N}` | `pentest.py::main` | **The main pentest run.** `N` = max react interactions per phase. |
+| `python cli.py octopus -m {N}` | `pentest.py::main` | **The main pentest run.** `N` = max react interactions per phase. |
 | `python cli.py pentestgpt` | `experiment/pentestgpt.py::main` | PentestGPT baseline. |
 | `python cli.py base` | `experiment/base.py::main` | Single-agent baseline. |
 
-Typical order: `init` → (optional) `start -a` if RAG is enabled → `vulnbot -m 5`.
+Typical order: `init` → (optional) `start -a` if RAG is enabled → `octopus -m 5`.
 
-`vulnbot` prompts interactively: continue a previous session? then "describe the
+`octopus` prompts interactively: continue a previous session? then "describe the
 penetration testing task" (include the target IP here).
 
 ---
@@ -297,7 +297,7 @@ is operational:
 - The **target** is supplied in the interactive `init_description` (the task text, including
   the target IP). RAG context has IPs scrubbed to `<target>` in
   `server/utils/utils.py::replace_ip_with_targetip`.
-- AutoPenBench provides the vulnerable target VMs; VulnBot reaches them from the Kali host.
+- AutoPenBench provides the vulnerable target VMs; Octopus reaches them from the Kali host.
 - The `experiment/base.py` "CTF player" `auto_init` prompt is the AutoPenBench-style
   autonomous baseline harness.
 
@@ -336,7 +336,7 @@ Linux SSH host** (to actually execute), and **Milvus** (only if `enable_rag`).
 
 **To run the full pipeline** (outside this documentation phase): provision MySQL, an LLM
 endpoint, and a Kali host; fill `model_config.yaml` + `db_config.yaml` +
-`basic_config.yaml`; `python cli.py init`; then `python cli.py vulnbot -m 5`.
+`basic_config.yaml`; `python cli.py init`; then `python cli.py octopus -m 5`.
 
 ---
 
@@ -384,7 +384,7 @@ during eval) is still stubbed. See §8 for attach points.
   `_belief_persist` (in `_react`, the Updater) saves it each step; `_belief_choose_next` (the
   policy, set as `Planner.task_selector`) picks among dependency-ready PTG tasks;
   `_task_to_action_for` maps a task → `Action` and enriches its R inputs via `priors.enrich_action`.
-  A belief failure never breaks a run; `VULNBOT_BELIEF_POLICY=0` disables belief-driven task
+  A belief failure never breaks a run; `OCTOPUS_BELIEF_POLICY=0` disables belief-driven task
   selection (ablation).
 
 ---
@@ -420,7 +420,7 @@ during eval) is still stubbed. See §8 for attach points.
   (set in `_plan`).
 - **How:** among dependency-ready tasks, π scores candidate actions by **information-gain**
   (normalized entropy of the factor a recon probes) vs. **exploit-value** (`score_action`'s R),
-  argmax. `VULNBOT_BELIEF_POLICY=0` disables it (the free with/without-belief ablation).
+  argmax. `OCTOPUS_BELIEF_POLICY=0` disables it (the free with/without-belief ablation).
 
 ### 8.4 Reward + priors → **`score_action` + `pomdp/priors.py`**  *(DONE — Phase 2.5)*
 - **Where:** `pomdp/belief_state.py::score_action` (R = `P(succeeds|b)·value − cost − detection`)
@@ -446,7 +446,7 @@ during eval) is still stubbed. See §8 for attach points.
    runtime, but flag it as a latent typo — do not "fix" during this read-only phase.
 4. **Two conversation memories.** The main pipeline stores history in MySQL
    (`server/chat/chat.py`) while `experiment/llm_ollama.py` keeps an in-memory
-   `conversation_dict`. Confirm the belief work should target the MySQL path (VulnBot
+   `conversation_dict`. Confirm the belief work should target the MySQL path (Octopus
    proper), not the experiment baselines.
 5. **RAG default off.** `enable_rag` defaults to `false`, so the Memory-Retriever is
    inactive unless explicitly configured. Should the Belief Store reuse the RAG/Milvus
@@ -455,6 +455,6 @@ during eval) is still stubbed. See §8 for attach points.
    only special-cases `Shell` (everything else falls through to manual in `semi` mode).
    Confirm whether `Web` is exercised in the benchmark runs.
 7. **Eager RAG coupling.** `cli.py` imports `startup → server → rag → langchain` at load
-   time, so *every* subcommand (even `vulnbot` with `enable_rag: false`) requires the full
+   time, so *every* subcommand (even `octopus` with `enable_rag: false`) requires the full
    RAG/ML stack to be installed. Is this intended, or should RAG imports be lazy? (Not
    changed in this read-only phase — noted for the belief-work environment setup.)

@@ -14,7 +14,7 @@ attacks a deliberately vulnerable target on a network with **no route to the pub
 | **target** | `tleemcjr/metasploitable2` (example) | Deliberately vulnerable victim. No internet by design. | `labnet` | always |
 | **mysql** | `mysql:8` | Sessions/plans/tasks/conversations/messages store. On `labnet` (a containerized agent reaches it as `mysql:3306`) **and** published on the host (`127.0.0.1:3306`, so the host-side pipeline connects over loopback — same rationale as kali's `:2222`). | `labnet` + host `:3306` | `data` |
 | **ollama** | `ollama/ollama` | Local LLM server on the RTX 5080 (used when `LLM_BACKEND=local`). | `labnet` | `local` |
-| **agent-local** | `docker/agent` (Python 3.11) | VulnBot + belief app. Repo mounted at `/app`. **No egress.** | `labnet` | `local` |
+| **agent-local** | `docker/agent` (Python 3.11) | Octopus + belief app. Repo mounted at `/app`. **No egress.** | `labnet` | `local` |
 | **agent-api** | `docker/agent` | Same agent, hosted-LLM variant. Joins egress for API calls. | `labnet`, `egress` | `api` |
 
 Both agent variants use `container_name: agent`, so only one runs at a time (selected by profile)
@@ -101,7 +101,7 @@ Select the backend/profile with `-Backend local|api` (PowerShell) or `PROFILE=lo
 ## LLM backend switch
 
 `.env` `LLM_BACKEND`:
-- `local` → run `./lab.ps1 up` (starts `ollama` on labnet); point VulnBot's `model_config.yaml`
+- `local` → run `./lab.ps1 up` (starts `ollama` on labnet); point Octopus's `model_config.yaml`
   at `http://ollama:11434` with `llm_model: ollama`. No internet.
 - `api` → run `./lab.ps1 up -Backend api`; set `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` in `.env`; the
   agent (and only the agent) has egress.
@@ -116,7 +116,7 @@ enables thinking again.
 
 ## MySQL provisioning (local vs docker)
 
-VulnBot **always** needs MySQL (sessions/plans/tasks/conversations/messages). The octopus CLI asks
+Octopus **always** needs MySQL (sessions/plans/tasks/conversations/messages). The octopus CLI asks
 once, at setup, where it runs and persists the choice (`mysqlMode` in `cli/.octopus.json`):
 
 - **docker** (recommended) — the compose `mysql` service (profile `data`), on `labnet` + published
@@ -126,7 +126,7 @@ once, at setup, where it runs and persists the choice (`mysqlMode` in `cli/.octo
   which would pull the FastAPI/RAG stack). Already-reachable = silent no-op. The host-side pipeline
   connects at `127.0.0.1:3306`; a containerized agent would use `mysql:3306` on labnet. Creds come
   from the `MYSQL_*` vars in `.env`; `db_config.yaml` is written to match (`127.0.0.1:3306`,
-  `vulnbot/vulnbot`).
+  `octopus/octopus`).
 - **local** — you run your own MySQL on `127.0.0.1:3306`. `/run` only checks reachability; if it's
   down it prints one line (*"start your local MySQL, then retry /run"*) and does **not** spawn.
   Create the tables once with `python pentest.py --init-db`.

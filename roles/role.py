@@ -102,12 +102,12 @@ class Role(BaseModel):
         """Policy hook (Phase 2.4): let the belief pick among dependency-ready tasks.
 
         Returns the chosen Task, or None to fall back to the deterministic topo pick.
-        Env `VULNBOT_BELIEF_POLICY=0` disables it (the free with/without-belief ablation).
+        Env `OCTOPUS_BELIEF_POLICY=0` disables it (the free with/without-belief ablation).
         Best-effort: any failure returns None so the run is never broken.
         """
         try:
             import os
-            if os.environ.get("VULNBOT_BELIEF_POLICY", "1") == "0":
+            if os.environ.get("OCTOPUS_BELIEF_POLICY", "1") == "0":
                 return None
             from pomdp.belief_store import BeliefStore
             from pomdp.belief_state import choose_action
@@ -166,7 +166,7 @@ class Role(BaseModel):
             if b is None:
                 return
             action = self._task_to_action()
-            # self-consistency: average Z over VULNBOT_Z_SAMPLES calls (TL-2.3), shared with BeliefAgent.
+            # self-consistency: average Z over OCTOPUS_Z_SAMPLES calls (TL-2.3), shared with BeliefAgent.
             b = update_belief(b, action, observation, llm=self._belief_llm, samples=z_samples())
             store.save(b)
             self._emit_belief(b)  # surface the updated posterior in the CLI as friendly bars

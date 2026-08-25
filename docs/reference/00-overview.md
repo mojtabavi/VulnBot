@@ -1,8 +1,8 @@
 # 00 · Overview & Run Lifecycle
 
-## What VulnBot is
+## What Octopus is
 
-VulnBot is an **autonomous penetration-testing agent**. You give it a target (an IP or a task
+Octopus is an **autonomous penetration-testing agent**. You give it a target (an IP or a task
 description); it plans an assessment, runs real tools on a Kali host, reads the output, revises its plan,
 and works through recon → scanning → exploitation — driven end-to-end by a large language model, with a
 human able to watch and intervene.
@@ -97,7 +97,7 @@ Every LLM call funnels through [`server/chat/chat.py::_chat`](../../server/chat/
 
 ![Run lifecycle — the belief agent](diagrams/00-lifecycle-agent.png)
 
-1. **Wire up.** Build an R3 `Executor` (SSH always; msfrpc if importable; MCP only if `VULNBOT_MCP` is on),
+1. **Wire up.** Build an R3 `Executor` (SSH always; msfrpc if importable; MCP only if `OCTOPUS_MCP` is on),
    a `str→str` belief LLM over `_chat`, a per-run `EventLog` (`data/runs/<id>/events.jsonl`) and
    `BeliefStore` (`data/beliefs/<id>/`), and — for R2 — open a loopback `ControlServer` and wait briefly for
    the octopus CLI to connect.

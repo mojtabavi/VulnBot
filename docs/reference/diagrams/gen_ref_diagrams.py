@@ -111,7 +111,7 @@ def title(x, y, text, size=26, color=GRAY):
     })
 
 def write(name):
-    doc = {"type": "excalidraw", "version": 2, "source": "vulnbot-ref-diagrams",
+    doc = {"type": "excalidraw", "version": 2, "source": "octopus-ref-diagrams",
            "elements": list(elements), "appState": {"gridSize": None, "viewBackgroundColor": "#ffffff"},
            "files": {}}
     out = os.path.join(os.path.dirname(__file__), name)
@@ -125,7 +125,7 @@ W, H = 240, 88
 # 1. AGENT-CONNECTION GRAPH
 # ══════════════════════════════════════════════════════════════════════════════
 reset()
-title(40, 20, "VulnBot — Agent Connection Map", 26, GRAY)
+title(40, 20, "Octopus — Agent Connection Map", 26, GRAY)
 title(40, 54, "Purple = pipeline agents  |  Magenta = belief/LLM  |  Orange = executor  |  Blue = front-end", 13, ZONE)
 
 # front-end + entry
@@ -183,7 +183,7 @@ write("agents.excalidraw")
 # 2. SYSTEM ARCHITECTURE OVERVIEW
 # ══════════════════════════════════════════════════════════════════════════════
 reset()
-title(40, 20, "VulnBot — System Architecture & Data Flow", 26, GRAY)
+title(40, 20, "Octopus — System Architecture & Data Flow", 26, GRAY)
 
 node("user",  40,  110, W, H, "User / Session\ninit_description\n(pentest.py)", UI)
 node("roles", 360, 110, W, H, "Role agents\nCollector>Scanner>Exploiter\n(roles/)", PROC)
@@ -278,7 +278,7 @@ node("router", 720, 140, 260, H, "router.channel_router\npick by action type\n+ 
 
 node("ssh",  1060, 60, W, H, "SshChannel\narbitrary tools\n(ShellManager)", DANGER)
 node("msf",  1060, 180, W, H, "MsfChannel\nMetasploit modules\n(pymetasploit3)", DANGER)
-node("mcp",  1060, 300, W, H, "McpChannel\nflag-gated VULNBOT_MCP=0\n(stub)", GRAY)
+node("mcp",  1060, 300, W, H, "McpChannel\nflag-gated OCTOPUS_MCP=0\n(stub)", GRAY)
 
 node("obs",  720, 340, 260, H, "Observation\nraw=O, structured,\nsuccess, channel, error", DECIDE)
 node("kali", 1060, 430, W, H, "Kali tools (Docker)\n-> target", DANGER)
@@ -678,5 +678,5 @@ arrow("pgpt", "r", "ptt", "l", DECIDE)
 arrow("pgpt", "b", "llm", "l", AI, dashed=True)
 arrow("base", "r", "llm", "l", AI, dashed=True)
 node("note", 60, 300, 560, 84,
-     "Neither is invoked by pentest.py. Both reuse actions/ (ShellManager, WriteCode) for\nexecution and _chat for the LLM, but do NOT join the multi-agent VulnBot planning\npipeline — they exist purely to benchmark against VulnBot.", GRAY)
+     "Neither is invoked by pentest.py. Both reuse actions/ (ShellManager, WriteCode) for\nexecution and _chat for the LLM, but do NOT join the multi-agent Octopus planning\npipeline — they exist purely to benchmark against Octopus.", GRAY)
 write("07-baselines.excalidraw")

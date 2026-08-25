@@ -1,7 +1,7 @@
 {
   "type": "excalidraw",
   "version": 2,
-  "source": "vulnbot-ref-diagrams",
+  "source": "octopus-ref-diagrams",
   "elements": [
     {
       "id": "el0193",
@@ -29,13 +29,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "VulnBot \u2014 System Architecture & Data Flow",
+      "text": "Octopus \u2014 System Architecture & Data Flow",
       "fontSize": 26,
       "fontFamily": 1,
       "textAlign": "left",
       "verticalAlign": "top",
       "containerId": null,
-      "originalText": "VulnBot \u2014 System Architecture & Data Flow",
+      "originalText": "Octopus \u2014 System Architecture & Data Flow",
       "lineHeight": 1.25,
       "baseline": 26
     },

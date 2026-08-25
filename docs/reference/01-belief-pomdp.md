@@ -50,7 +50,7 @@ prompt that asks the LLM for per-hypothesis likelihoods), `DEFAULT_VALUE`, and t
 
 ### Belief construction (the b0 priors)
 
-**`z_samples(default=1) -> int`** — Reads the `VULNBOT_Z_SAMPLES` environment variable (clamped to ≥1) and
+**`z_samples(default=1) -> int`** — Reads the `OCTOPUS_Z_SAMPLES` environment variable (clamped to ≥1) and
 returns the self-consistency sample count. This is the **single source of truth** for how many times the
 Updater samples the LLM per update, so the standalone `BeliefAgent` and the legacy Role updater agree.
 `samples > 1` averages the likelihood estimate to reduce noise; the default 1 means one LLM call.

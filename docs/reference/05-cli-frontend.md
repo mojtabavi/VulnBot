@@ -1,6 +1,6 @@
 # 05 · The octopus CLI (Ink / TypeScript) — `cli/src`
 
-An Ink (React-in-the-terminal) front-end for the Python VulnBot pipeline. Pure logic modules (`.ts`) are
+An Ink (React-in-the-terminal) front-end for the Python Octopus pipeline. Pure logic modules (`.ts`) are
 unit-tested by `selftest.ts`; `.tsx` are Ink components. The CLI spawns `python pentest.py …` and talks to
 the agent across **three independent lanes**.
 

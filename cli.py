@@ -12,7 +12,7 @@ from utils.log_common import build_logger
 logger = build_logger()
 
 
-@click.group(help="VulnBot")
+@click.group(help="Octopus")
 def main():
     ...
 
@@ -34,7 +34,7 @@ def init():
 
 
 main.add_command(startup_main, "start")
-main.add_command(pentest_main, "vulnbot")
+main.add_command(pentest_main, "octopus")
 main.add_command(pentestgpt_main, "pentestgpt")
 main.add_command(base_main, "base")
 

@@ -3,6 +3,6 @@
 mysql:
   host: 127.0.0.1
   port: 3306
-  user: vulnbot
+  user: octopus
   password: change_me
-  database: vulnbot
+  database: octopus

@@ -84,7 +84,7 @@ R2 interactive Ink CLI (HITL), R3 multi-channel executor, R4 JSON logging + Ink 
   `observation` (full `Observation.to_dict()`), `belief_update` (prior+posterior), `llm_likelihoods` (Z),
   `decision`/`error`/`run_end`. Fixed a `type=` kwarg collision with `EventLog.append(type,…)` (renamed the
   field to `action_type`) that a test fake had masked. Verified on-disk (9 types, monotonic seq) + 53 pass.
-- **Self-consistency `VULNBOT_Z_SAMPLES` unified (R1, TL-2.3).** New `belief_state.z_samples()` (env,
+- **Self-consistency `OCTOPUS_Z_SAMPLES` unified (R1, TL-2.3).** New `belief_state.z_samples()` (env,
   clamp ≥1) is the single source of truth for the Updater's Z-sample count; both `BeliefAgent` and the
   legacy Role updater `_belief_persist` (was hardcoded `samples=1`) now use it. `pomdp/agent.py` dropped
   its unused `os` import. Full suite 53 passed.
@@ -99,7 +99,7 @@ R2 interactive Ink CLI (HITL), R3 multi-channel executor, R4 JSON logging + Ink 
   goal predicate or step cap. Default candidate generation (recon per host + priors-enriched exploits) and
   a default root-goal make it runnable; every side channel (candidate gen, approve gate, executor raise,
   Z/update, event sink) is guarded so a failure never breaks the run. Belief math imported, never
-  re-implemented; never branches on S. `samples` from arg / `VULNBOT_Z_SAMPLES` / 1 (TL-2.3 seam); emits
+  re-implemented; never branches on S. `samples` from arg / `OCTOPUS_Z_SAMPLES` / 1 (TL-2.3 seam); emits
   the core event set if an `EventLog` is attached (TL-2.4 completes it). Smoke PASS (15 asserts).
 - **`docs/EXECUTOR.md` — finished executor-layer write-up (R3, TL-1.8 → TL-1 COMPLETE).** Files table,
   `Action→Observation` data-flow, per-channel table, router ranking policy, TL-1.5 timeout/retry/fallback
@@ -111,10 +111,10 @@ R2 interactive Ink CLI (HITL), R3 multi-channel executor, R4 JSON logging + Ink 
   fallback robustness (incl. timeout-not-auto-retried and all-dead→failure-never-raises), and MCP
   flag-gating via `monkeypatch`. Full suite 53 passed.
 - **`executor/mcp_channel.py` — flag-gated MCP channel, OFF by default (R3, TL-1.6).** Channel C, an
-  optional MCP tool bridge that is strictly additive (SSH+msfrpc stay sufficient). `VULNBOT_MCP` unset/
+  optional MCP tool bridge that is strictly additive (SSH+msfrpc stay sufficient). `OCTOPUS_MCP` unset/
   falsey → `supports()` False → the router never routes here (pure no-op). Truthy → offered only for
   actions naming an MCP tool (`params['mcp_tool']` / `mcp:` prefix), and `run()` first verifies
-  `VULNBOT_MCP_SERVER`+`VULNBOT_MCP_VERSION` (or an injected `verifier`) — a miss raises `ChannelError`→
+  `OCTOPUS_MCP_SERVER`+`OCTOPUS_MCP_VERSION` (or an injected `verifier`) — a miss raises `ChannelError`→
   fallback, so enabling the flag can never break a run. No transport is wired yet (deliberate stub): no
   `client_provider` → `ChannelError`→fallback; `_run_tool` is the injectable extension point that
   normalizes `call_tool` results into an `Observation`. Smoke PASS (12 asserts).

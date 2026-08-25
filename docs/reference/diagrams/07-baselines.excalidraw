@@ -1,7 +1,7 @@
 {
   "type": "excalidraw",
   "version": 2,
-  "source": "vulnbot-ref-diagrams",
+  "source": "octopus-ref-diagrams",
   "elements": [
     {
       "id": "el1858",
@@ -669,13 +669,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "Neither is invoked by pentest.py. Both reuse actions/ (ShellManager, WriteCode) for\nexecution and _chat for the LLM, but do NOT join the multi-agent VulnBot planning\npipeline \u2014 they exist purely to benchmark against VulnBot.",
+      "text": "Neither is invoked by pentest.py. Both reuse actions/ (ShellManager, WriteCode) for\nexecution and _chat for the LLM, but do NOT join the multi-agent Octopus planning\npipeline \u2014 they exist purely to benchmark against Octopus.",
       "fontSize": 15,
       "fontFamily": 1,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "el1906",
-      "originalText": "Neither is invoked by pentest.py. Both reuse actions/ (ShellManager, WriteCode) for\nexecution and _chat for the LLM, but do NOT join the multi-agent VulnBot planning\npipeline \u2014 they exist purely to benchmark against VulnBot.",
+      "originalText": "Neither is invoked by pentest.py. Both reuse actions/ (ShellManager, WriteCode) for\nexecution and _chat for the LLM, but do NOT join the multi-agent Octopus planning\npipeline \u2014 they exist purely to benchmark against Octopus.",
       "lineHeight": 1.25,
       "baseline": 15
     }

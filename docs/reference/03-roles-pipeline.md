@@ -52,7 +52,7 @@ honoring `z_samples()`), `_task_to_action_for(task)` / `_task_to_action()` (map 
 inferring the type from the instruction text), `_belief_choose_next(ready_tasks)` (let the belief policy pick
 among dependency-ready tasks), `_belief_persist(observation)` (the Updater — runs the observation through
 `update_belief` and saves), and the CLI markers `_emit_decision(action)` / `_emit_belief(b)`. Every one is
-wrapped so a belief failure can never break a pentest run; `VULNBOT_BELIEF_POLICY=0` disables belief-driven
+wrapped so a belief failure can never break a pentest run; `OCTOPUS_BELIEF_POLICY=0` disables belief-driven
 task selection (the ablation toggle).
 
 ### `roles/collector.py` — `Collector(Role)`

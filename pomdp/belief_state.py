@@ -1,4 +1,4 @@
-"""Explicit POMDP belief-state for the VulnBot belief agent.
+"""Explicit POMDP belief-state for the Octopus belief agent.
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  SCAFFOLD / STUB — Phase 2.1                                                    ║
@@ -56,14 +56,14 @@ GAMMA: float = 0.95
 
 
 def z_samples(default: int = 1) -> int:
-    """Self-consistency Z-sample count from the env (`VULNBOT_Z_SAMPLES`), clamped to ≥ 1.
+    """Self-consistency Z-sample count from the env (`OCTOPUS_Z_SAMPLES`), clamped to ≥ 1.
 
     The ONE source of truth for how many LLM samples the Updater averages per belief update
     (TL-2.3), so the standalone `BeliefAgent` loop and the legacy Role updater agree. `samples>1`
     averages Z across calls to reduce estimator variance (self-consistency); default 1 = one call.
     """
     try:
-        return max(1, int(os.environ.get("VULNBOT_Z_SAMPLES", str(default))))
+        return max(1, int(os.environ.get("OCTOPUS_Z_SAMPLES", str(default))))
     except (TypeError, ValueError):
         return max(1, int(default))
 

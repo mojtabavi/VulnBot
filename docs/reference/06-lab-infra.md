@@ -51,11 +51,11 @@ This is the same SSH/msfrpc split the R3 executor's channels ([`02-executor.md`]
 | [`Makefile`](../../Makefile) / [`lab.ps1`](../../lab.ps1) | Mirrored lifecycle wrappers: `up`, `dev-up`, `down`, `build`, `config`, `shell-kali`, `shell-agent`, `logs`, `smoke`; `PROFILE` / `-Backend` = `local\|api`. Makefile is canonical (Linux/CI/in-agent); `lab.ps1` is the Windows-host equivalent. |
 | [`.env.example`](../../.env.example) | Template for secrets: `PENTEST_ROOT`, optional proxies, MySQL creds, `MSF_RPC_PASSWORD`, `AGENT_SSH_PUBKEY`, the LLM backend selector. |
 
-## 6.4 How it connects to VulnBot
+## 6.4 How it connects to Octopus
 
 The lab is the **execution substrate**. The host-side pipeline (octopus spawns Python on the host) reaches
 kali over `127.0.0.1:2222` (SSH) and MySQL over `127.0.0.1:3306`; a containerized agent reaches services by
-hostname (`kali-tools:55553`, `mysql:3306`, `ollama`). The compose stack contains **no VulnBot application
+hostname (`kali-tools:55553`, `mysql:3306`, `ollama`). The compose stack contains **no Octopus application
 logic** — it only provides the tool host + target that the actions drive and the MySQL store backing the
 session/plan/task tables.
 

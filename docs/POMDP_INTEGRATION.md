@@ -3,7 +3,7 @@
 > **Status:** COMPLETE (TL-2). The standalone `BeliefAgent` loop runs, `run_agent` delegates to it, the
 > self-consistency + T-effect tests pass, and `pentest.py --agent` / `/run --agent` select it.
 
-VulnBot's belief agent is a real POMDP, not a POMDP-flavored name. Each element of the tuple maps to a
+Octopus's belief agent is a real POMDP, not a POMDP-flavored name. Each element of the tuple maps to a
 concrete code path. The agent **never observes or branches on S** — it acts on the belief `b` only.
 
 ## Tuple → code
@@ -27,7 +27,7 @@ concrete code path. The agent **never observes or branches on S** — it acts on
 - **Z:** the LLM as a learned observation model (answering Sarraute 2013 / CHECKMATE's "unobtainable
   Z tables"). Only the **direction/order** of likelihoods must be right, e.g. `Z(fail|present) <
   Z(fail|absent)`. Optional **self-consistency**: average Z over N LLM samples (`update_belief(samples=N)`,
-  driven by `VULNBOT_Z_SAMPLES` — TL-2.3).
+  driven by `OCTOPUS_Z_SAMPLES` — TL-2.3).
 
 ## Partial observability is provable (tests)
 
@@ -41,17 +41,17 @@ concrete code path. The agent **never observes or branches on S** — it acts on
 averages Z — an alternating 0.9/0.1 likelihood collapses to a ~0.5 posterior at `samples=2`; and the
 5-sample posterior variance is below the 1-sample variance over many noisy updates) and the explicit
 **T-effect** (the same observation under an exploit vs a recon moves different belief factors). Ablation:
-`VULNBOT_BELIEF_POLICY=0` disables belief-driven action selection (free with/without-belief eval).
+`OCTOPUS_BELIEF_POLICY=0` disables belief-driven action selection (free with/without-belief eval).
 
 ## Running the belief agent
 
 - **Standalone:** `python pentest.py --agent -m <step-cap> --description "<target-ip> <task>"` — drives
   `BeliefAgent` instead of the legacy 3-phase pipeline (still the default without `--agent`). Wires an R3
-  `Executor` (SSH [+ msfrpc] [+ MCP if `VULNBOT_MCP`]), a `str→str` belief LLM over `server.chat.chat._chat`,
+  `Executor` (SSH [+ msfrpc] [+ MCP if `OCTOPUS_MCP`]), a `str→str` belief LLM over `server.chat.chat._chat`,
   a per-run `EventLog` (`data/runs/agent-<ts>/events.jsonl`) and `BeliefStore` (`data/beliefs/agent-<ts>/`).
 - **From the octopus CLI:** `/run --agent <target-ip | task>`.
 - **Programmatic:** `pomdp.agent.run_agent(executor, belief_llm, session_id, hosts=…, vuln_ids=…)`.
-- **Knobs:** `VULNBOT_Z_SAMPLES` (self-consistency), `VULNBOT_BELIEF_POLICY=0` (ablation).
+- **Knobs:** `OCTOPUS_Z_SAMPLES` (self-consistency), `OCTOPUS_BELIEF_POLICY=0` (ablation).
 
 ## Event trace (R4 link)
 

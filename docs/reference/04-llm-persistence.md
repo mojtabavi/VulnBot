@@ -188,7 +188,7 @@ the cached, auto-reloaded settings; `_lazy_load_key(settings)` builds a cache ke
 
 **Source:** [`pentest.py`](../../pentest.py) · [`cli.py`](../../cli.py) · [`startup.py`](../../startup.py)
 
-**`pentest.py`** — `main(...)` is the `vulnbot` CLI command (flags `-m`, `--description` (headless),
+**`pentest.py`** — `main(...)` is the `octopus` CLI command (flags `-m`, `--description` (headless),
 `--no-resume`, `--session-name`, `--init-db`, `--agent`, `--step`); `run_belief_agent(console, session,
 max_steps, step_mode=False)` is the `--agent` path (wires the R3 executor + belief LLM + EventLog +
 BeliefStore + ControlServer, then runs `BeliefAgent.run`); plus `initialize_session` / `preload_session` /
@@ -196,7 +196,7 @@ BeliefStore + ControlServer, then runs `BeliefAgent.run`); plus `initialize_sess
 description → the belief target).
 
 **`cli.py`** — `main()` (a click group) + `init()` (`cli.py init` — make dirs, `create_tables`, write config
-templates); it registers `start`→`startup.main`, `vulnbot`→`pentest.main`, and the `pentestgpt`/`base`
+templates); it registers `start`→`startup.main`, `octopus`→`pentest.main`, and the `pentestgpt`/`base`
 baselines.
 
 **`startup.py`** — `main(all, api, webui)` (`cli.py start` — launch the FastAPI API + Streamlit WebUI, the
@@ -204,5 +204,5 @@ RAG stack, separate from the pentest run) + `run_api_server`, `run_webui`, `star
 `_set_app_event`.
 
 > **Import gotcha:** `cli.py` eagerly imports the FastAPI/RAG/langchain stack, so a pentest is run directly
-> via `pentest.py` (not `cli.py vulnbot`) — that keeps a run free of the heavy RAG imports when
+> via `pentest.py` (not `cli.py octopus`) — that keeps a run free of the heavy RAG imports when
 > `enable_rag: false`.

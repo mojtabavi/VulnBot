@@ -115,8 +115,8 @@ def title(x, y, text, size, color):
 
 W, H = 232, 88
 # ---- titles ----
-title(60, 20, "VulnBot — Architecture & Data Flow", 28, GRAY_STROKE)
-title(60, 56, "Gray = current VulnBot modules   |   Blue = implemented this fork: Docker lab, POMDP belief 2.1-2.5, octopus CLI, and ALL R1-R4 modules (TL-0 contracts, Executor R3 TL-1, BeliefAgent loop R1 TL-2, JSON logging R4 TL-3, Ink HITL R2 TL-4, Ink LogView R4 TL-5)", 14, IMPL_STROKE)
+title(60, 20, "Octopus — Architecture & Data Flow", 28, GRAY_STROKE)
+title(60, 56, "Gray = modules inherited from VulnBot (arXiv 2501.13411)   |   Blue = implemented this fork: Docker lab, POMDP belief 2.1-2.5, octopus CLI, and ALL R1-R4 modules (TL-0 contracts, Executor R3 TL-1, BeliefAgent loop R1 TL-2, JSON logging R4 TL-3, Ink HITL R2 TL-4, Ink LogView R4 TL-5)", 14, IMPL_STROKE)
 title(60, 76, "Remaining: TL-6 = live end-to-end run on the lab + final doc/schematic sync (no new modules).", 14, FUT_STROKE)
 
 # ---- current nodes ----
@@ -204,7 +204,7 @@ arrow("logview", "t", "events", "r", dashed=True, color=IMPL_STROKE, label="tail
 doc = {
     "type": "excalidraw",
     "version": 2,
-    "source": "vulnbot-architecture-phase1",
+    "source": "octopus-architecture-phase1",
     "elements": elements,
     "appState": {"gridSize": None, "viewBackgroundColor": "#ffffff"},
     "files": {},

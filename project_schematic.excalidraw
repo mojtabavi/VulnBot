@@ -1,7 +1,7 @@
 {
   "type": "excalidraw",
   "version": 2,
-  "source": "vulnbot-architecture-phase1",
+  "source": "octopus-architecture-phase1",
   "elements": [
     {
       "id": "el001",
@@ -29,13 +29,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "VulnBot \u2014 Architecture & Data Flow",
+      "text": "Octopus \u2014 Architecture & Data Flow",
       "fontSize": 28,
       "fontFamily": 1,
       "textAlign": "left",
       "verticalAlign": "top",
       "containerId": null,
-      "originalText": "VulnBot \u2014 Architecture & Data Flow",
+      "originalText": "Octopus \u2014 Architecture & Data Flow",
       "lineHeight": 1.25,
       "baseline": 28
     },
@@ -65,13 +65,13 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "Gray = current VulnBot modules   |   Blue = implemented this fork: Docker lab, POMDP belief 2.1-2.5, octopus CLI, and ALL R1-R4 modules (TL-0 contracts, Executor R3 TL-1, BeliefAgent loop R1 TL-2, JSON logging R4 TL-3, Ink HITL R2 TL-4, Ink LogView R4 TL-5)",
+      "text": "Gray = modules inherited from VulnBot (arXiv 2501.13411)   |   Blue = implemented this fork: Docker lab, POMDP belief 2.1-2.5, octopus CLI, and ALL R1-R4 modules (TL-0 contracts, Executor R3 TL-1, BeliefAgent loop R1 TL-2, JSON logging R4 TL-3, Ink HITL R2 TL-4, Ink LogView R4 TL-5)",
       "fontSize": 14,
       "fontFamily": 1,
       "textAlign": "left",
       "verticalAlign": "top",
       "containerId": null,
-      "originalText": "Gray = current VulnBot modules   |   Blue = implemented this fork: Docker lab, POMDP belief 2.1-2.5, octopus CLI, and ALL R1-R4 modules (TL-0 contracts, Executor R3 TL-1, BeliefAgent loop R1 TL-2, JSON logging R4 TL-3, Ink HITL R2 TL-4, Ink LogView R4 TL-5)",
+      "originalText": "Gray = modules inherited from VulnBot (arXiv 2501.13411)   |   Blue = implemented this fork: Docker lab, POMDP belief 2.1-2.5, octopus CLI, and ALL R1-R4 modules (TL-0 contracts, Executor R3 TL-1, BeliefAgent loop R1 TL-2, JSON logging R4 TL-3, Ink HITL R2 TL-4, Ink LogView R4 TL-5)",
       "lineHeight": 1.25,
       "baseline": 14
     },

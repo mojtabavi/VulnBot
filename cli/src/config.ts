@@ -199,7 +199,7 @@ export interface DbSettings {
 }
 /** Defaults match .env.example / the mysql compose service, so the docker path works out of the box. */
 export const DEFAULT_DB: DbSettings = {
-  host: '127.0.0.1', port: 3306, user: 'vulnbot', password: 'vulnbot', database: 'vulnbot',
+  host: '127.0.0.1', port: 3306, user: 'octopus', password: 'octopus', database: 'octopus',
 };
 export function writeDbConfig(db: DbSettings): void {
   const cfg = loadYaml('db_config.yaml');

@@ -32,7 +32,7 @@ Both are stdlib-only, so `executor/` imports without the RAG/ML stack.
 | `executor/base.py` | `Channel` ABC, `ChannelError`/`ChannelTimeout`, the `Executor` facade (routing + timeout/retry/fallback), `Router` type + `_default_router` fallback |
 | `executor/ssh_channel.py` | **Channel A** — arbitrary shell tools on Kali via `ShellManager`/`RemoteShell`; stdout → `Observation` |
 | `executor/msf_channel.py` | **Channel B** — Metasploit modules over `pymetasploit3`; structured RPC result → `Observation` |
-| `executor/mcp_channel.py` | **Channel C** — optional MCP tool bridge, OFF by default (`VULNBOT_MCP=0`) |
+| `executor/mcp_channel.py` | **Channel C** — optional MCP tool bridge, OFF by default (`OCTOPUS_MCP=0`) |
 | `executor/router.py` | the policy router: `route()` → `RouteDecision`, `channel_router()` (Executor default) |
 
 ## Channels (adapters)
@@ -46,7 +46,7 @@ an ordinary tool failure (which is a normal `Observation` with `success=False`).
 |---------|-----------|----------|--------|------------|
 | **SSH** | paramiko (`actions/shell_manager.py` + `actions/remote_shell.py`) | arbitrary tools: nmap, enum, custom shell | raw stdout → `Observation.raw` | `ChannelError` (dead/failed session) |
 | **msfrpc** | `pymetasploit3` → `msfrpcd:55553` (pattern: `docker/agent/smoke_channels.py`) | Metasploit modules (exploit/lateral/privesc naming a module) | structured RPC result → `Observation.structured` (+ summary in `raw`) | `ChannelError` (unreachable/mid-exec) |
-| **MCP** *(flag-gated `VULNBOT_MCP=0`)* | MCP server — verify exact server + version before enabling | optional efficiency layer only | normalized like the others | `ChannelError` (disabled/unverified/no transport) |
+| **MCP** *(flag-gated `OCTOPUS_MCP=0`)* | MCP server — verify exact server + version before enabling | optional efficiency layer only | normalized like the others | `ChannelError` (disabled/unverified/no transport) |
 
 **SSH + msfrpc are sufficient on their own.** MCP is strictly additive; if unavailable/unstable the
 system runs fully on SSH + msfrpc.
@@ -102,11 +102,11 @@ Defaults (`timeout_s=None`, `retries=0`) preserve the plain single-attempt behav
 
 `McpChannel` is a **flag-gated stub**, OFF by default, so MCP is never a dependency:
 
-- `VULNBOT_MCP` unset / falsey → `is_enabled()` False → `supports()` False for every action → the
+- `OCTOPUS_MCP` unset / falsey → `is_enabled()` False → `supports()` False for every action → the
   router never routes here (pure no-op). SSH + msfrpc do everything.
-- `VULNBOT_MCP` truthy → the channel offers itself only for actions naming an MCP tool
+- `OCTOPUS_MCP` truthy → the channel offers itself only for actions naming an MCP tool
   (`params['mcp_tool']` or a `mcp:<tool>` prefix on `tool`), and `run()` **first verifies** the
-  configured server + version (`VULNBOT_MCP_SERVER` + `VULNBOT_MCP_VERSION`, or an injected `verifier`).
+  configured server + version (`OCTOPUS_MCP_SERVER` + `OCTOPUS_MCP_VERSION`, or an injected `verifier`).
   A verification miss raises `ChannelError` → the Executor falls back. Enabling the flag can never
   *break* a run; at worst it falls back.
 - No real transport is wired yet: with no `client_provider`, `run()` raises `ChannelError` → fallback.

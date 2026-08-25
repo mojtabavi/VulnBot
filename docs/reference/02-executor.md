@@ -181,7 +181,7 @@ everything without it, so MCP is never a dependency.
 **`class McpChannel(client_provider=None, verifier=None)`** — `name="mcp"`. Injectable `client_provider` (runs
 the tool) and `verifier` (confirms the server + version).
 
-**`McpChannel.is_enabled()` (static)** — True only when `VULNBOT_MCP` is truthy. Default **off**.
+**`McpChannel.is_enabled()` (static)** — True only when `OCTOPUS_MCP` is truthy. Default **off**.
 
 **`McpChannel._mcp_tool(action)` (static)** — The MCP tool the action names (`params['mcp_tool']` or a
 `mcp:<tool>` prefix on `tool`), or `None`. A bare tool never matches.
@@ -189,8 +189,8 @@ the tool) and `verifier` (confirms the server + version).
 **`McpChannel.supports(action)`** — Disabled ⇒ `False` for every action, so the router never routes here (a
 pure no-op). Enabled ⇒ True only for actions naming an MCP tool.
 
-**`McpChannel._verify()`** — Confirms the configured server + version (`VULNBOT_MCP_SERVER` +
-`VULNBOT_MCP_VERSION`, or an injected verifier) before any call; a miss raises `ChannelError` → fallback, so
+**`McpChannel._verify()`** — Confirms the configured server + version (`OCTOPUS_MCP_SERVER` +
+`OCTOPUS_MCP_VERSION`, or an injected verifier) before any call; a miss raises `ChannelError` → fallback, so
 enabling the flag can never *break* a run.
 
 **`McpChannel.run(action, action_id) -> Observation`** — Disabled → failure O; no MCP tool → failure O;

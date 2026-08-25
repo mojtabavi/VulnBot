@@ -1,6 +1,6 @@
-# VulnBot — Reference Documentation
+# Octopus — Reference Documentation
 
-A complete, from-scratch reference for the **VulnBot** platform (this thesis fork): what it is, how a
+A complete, from-scratch reference for the **Octopus** platform (this thesis fork): what it is, how a
 run flows step-by-step, and **every module, agent, and function** described. Built for a reader who has
 never seen the codebase.
 
@@ -15,7 +15,7 @@ event logging + a rich log viewer). All of R1–R4 is implemented; 71 pytest + t
 
 | File | Covers |
 |------|--------|
-| [`00-overview.md`](00-overview.md) | What VulnBot is, the thesis-fork goal, the end-to-end run lifecycle **step-by-step**, and a glossary. |
+| [`00-overview.md`](00-overview.md) | What Octopus is, the thesis-fork goal, the end-to-end run lifecycle **step-by-step**, and a glossary. |
 | [`01-belief-pomdp.md`](01-belief-pomdp.md) | The POMDP belief layer — `pomdp/` (belief state, updater, policy, reward, store, the standalone `BeliefAgent` loop). Every function. |
 | [`02-executor.md`](02-executor.md) | The R3 multi-channel executor — `executor/` (facade, router, SSH/msfrpc/MCP channels, timeout/retry/fallback, the `Observation` schema). Every function. |
 | [`03-roles-pipeline.md`](03-roles-pipeline.md) | The legacy 3-phase pipeline agents — `roles/` (Collector→Scanner→Exploiter), `actions/` (Planner, Generator, Executor, Summarizer, shells), `prompts/`. Every function. |
