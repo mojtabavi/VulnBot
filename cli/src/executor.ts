@@ -162,20 +162,24 @@ export interface PentestRun {
   stop: () => void;
 }
 
-/** Launch `python cli.py vulnbot -m N --no-resume --description <desc>` from the repo root and
- *  stream merged stdout/stderr line-by-line. Returns a handle whose stop() kills the process.
+/** Launch `python pentest.py -m N --no-resume --description <desc> [--agent]` from the repo root
+ *  and stream merged stdout/stderr line-by-line. Returns a handle whose stop() kills the process.
+ *  `agent` selects the R1 belief-first BeliefAgent loop (default: the legacy 3-phase pipeline).
  *  Real tooling runs on Kali — callers must confirm the target is authorized. */
 export function runPentest(
   description: string,
   maxSteps: number,
   onLine: (line: string) => void,
   onExit: (code: number | null) => void,
+  agent: boolean = false,
 ): PentestRun {
+  // Run pentest.py directly, NOT `cli.py vulnbot` — cli.py eagerly imports the FastAPI server +
+  // RAG/langchain stack, which isn't needed for a run (enable_rag: false).
+  const args = ['pentest.py', '-m', String(maxSteps), '--no-resume', '--description', description];
+  if (agent) args.push('--agent');
   const child = execa(
     pythonExe(),
-    // Run pentest.py directly, NOT `cli.py vulnbot` — cli.py eagerly imports the FastAPI server +
-    // RAG/langchain stack, which isn't needed for a run (enable_rag: false).
-    ['pentest.py', '-m', String(maxSteps), '--no-resume', '--description', description],
+    args,
     { cwd: REPO_ROOT, all: true, buffer: false, env: { PYTHONUNBUFFERED: '1' }, reject: false },
   );
   if (child.all) {

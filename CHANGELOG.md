@@ -9,6 +9,42 @@ R2 interactive Ink CLI (HITL), R3 multi-channel executor, R4 JSON logging + Ink 
 ## [Unreleased] — R1–R4 interactive-POMDP hardening
 
 ### Added
+- **`docs/POMDP_INTEGRATION.md` — finished tuple→code map (R1, TL-2.7 → TL-2 COMPLETE).** The
+  ⟨S,A,O,T,Z,R,b,γ,π⟩→code table (T routing, `BeliefAgent.run` loop, R→`score` event), the
+  partial-observability/self-consistency/T-effect test references, and a "Running the belief agent"
+  section. **The R1 full POMDP loop is done** — `run_agent` runs the standalone belief-first loop.
+- **`tests/test_agent.py` — R1 belief-loop tests (R1, TL-2.6).** Self-consistency (samples>1 averages Z;
+  5-sample posterior variance < 1-sample) + the T-effect (exploit vs recon move different belief factors
+  from the same observation) + a fakes-only `BeliefAgent` loop smoke. Full suite 57 passed.
+- **`pentest.py --agent` + CLI `/run --agent` (R1, TL-2.5).** `--agent` drives the standalone
+  `BeliefAgent` loop (`run_belief_agent`: lazy R3 `Executor` SSH[+msf][+MCP-if-flagged] + `_chat` belief
+  LLM + per-run `EventLog`/`BeliefStore`, target from the description) instead of the legacy 3-phase
+  pipeline (still the default). `runPentest(…, agent)` appends the flag; the Repl parses `/run [--agent]`.
+  CLI typecheck + selftest PASS.
+
+### Changed
+- **`BeliefAgent` emits the full R4 event set (R1+R4, TL-2.4).** Through the `EventLog` seam:
+  `run_start`, per-step `action_selected` + `score`, gated `approval_request`/`approval_result`,
+  `observation` (full `Observation.to_dict()`), `belief_update` (prior+posterior), `llm_likelihoods` (Z),
+  `decision`/`error`/`run_end`. Fixed a `type=` kwarg collision with `EventLog.append(type,…)` (renamed the
+  field to `action_type`) that a test fake had masked. Verified on-disk (9 types, monotonic seq) + 53 pass.
+- **Self-consistency `VULNBOT_Z_SAMPLES` unified (R1, TL-2.3).** New `belief_state.z_samples()` (env,
+  clamp ≥1) is the single source of truth for the Updater's Z-sample count; both `BeliefAgent` and the
+  legacy Role updater `_belief_persist` (was hardcoded `samples=1`) now use it. `pomdp/agent.py` dropped
+  its unused `os` import. Full suite 53 passed.
+- **`pomdp/belief_state.py::run_agent` — now a delegator, no longer `NotImplementedError` (R1, TL-2.2).**
+  Lazily imports and calls `pomdp.agent.run_agent` (lazy import breaks the agent↔belief_state cycle).
+  Belief math untouched. Full suite 53 passed.
+
+### Added
+- **`pomdp/agent.py` — `BeliefAgent` standalone POMDP loop (R1, TL-2.1).** The integrator that ties π +
+  Executor (R3) + Updater + Belief Store together: b0 = `new_belief` + `priors.seed_vuln_priors`, then
+  `choose_action → (HITL gate) → executor.run → update_belief(llm, samples) → BeliefStore.save` until a
+  goal predicate or step cap. Default candidate generation (recon per host + priors-enriched exploits) and
+  a default root-goal make it runnable; every side channel (candidate gen, approve gate, executor raise,
+  Z/update, event sink) is guarded so a failure never breaks the run. Belief math imported, never
+  re-implemented; never branches on S. `samples` from arg / `VULNBOT_Z_SAMPLES` / 1 (TL-2.3 seam); emits
+  the core event set if an `EventLog` is attached (TL-2.4 completes it). Smoke PASS (15 asserts).
 - **`docs/EXECUTOR.md` — finished executor-layer write-up (R3, TL-1.8 → TL-1 COMPLETE).** Files table,
   `Action→Observation` data-flow, per-channel table, router ranking policy, TL-1.5 timeout/retry/fallback
   semantics + `_executor_fallback` trail, TL-1.6 MCP gating, the `Observation` schema, tests/smoke, and

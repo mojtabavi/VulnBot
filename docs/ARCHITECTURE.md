@@ -61,11 +61,18 @@ facade over pluggable channels, so the belief loop always receives a normalized 
 | Router | `executor/router.py` | picks per action type + logs the justification (recon→ssh; exploit/lateral/privesc naming an MSF module→msfrpc first, ssh fallback; no module→ssh) as a `##OCTO## decision|kind=route` marker |
 
 This R3 executor is **distinct** from the legacy `actions/execute_task.py` pipeline path (§4); the
-standalone `BeliefAgent` (R1, TL-2) will drive it. Verified by `tests/test_executor.py` (23 tests, fakes).
+standalone `BeliefAgent` (R1, TL-2) drives it. Verified by `tests/test_executor.py` (23 tests, fakes).
 
-Still to come: the standalone `BeliefAgent` loop that wires
-`choose_action → executor.run → update_belief → persist` (R1, TL-2), JSON-logging throughout (R4, TL-3),
-and the Ink HITL + LogView (R2/R4, TL-4/5).
+**TL-2 — the R1 standalone POMDP loop (`pomdp/agent.py`, done).** `BeliefAgent.run` is the belief-first
+control loop the whole thesis is about: `new_belief` + `priors.seed_vuln_priors` → repeat
+`choose_action` (π) → HITL gate → `executor.run` (R3, → Observation) → `update_belief` (Z + soft Bayes) →
+`BeliefStore.save` until a goal predicate or the step cap. It imports the belief MATH, never re-implements
+it, and never branches on S. `belief_state.run_agent` now delegates here (lazy import); the loop is
+selected by `pentest.py --agent` / octopus `/run --agent` and emits the full R4 event set through an
+attached `EventLog`. Self-consistency (`VULNBOT_Z_SAMPLES`) and the T-effect are locked by
+`tests/test_agent.py`; the tuple→code map is `docs/POMDP_INTEGRATION.md`.
+
+Still to come: JSON-logging wired end-to-end (R4, TL-3) and the Ink HITL + LogView (R2/R4, TL-4/5).
 
 ---
 

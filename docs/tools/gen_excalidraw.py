@@ -116,8 +116,8 @@ def title(x, y, text, size, color):
 W, H = 232, 88
 # ---- titles ----
 title(60, 20, "VulnBot — Architecture & Data Flow", 28, GRAY_STROKE)
-title(60, 56, "Gray = current VulnBot modules   |   Blue = implemented this fork (Docker lab / POMDP belief 2.1-2.5 / octopus CLI / R1-R4 TL-0 contracts + Executor R3 TL-1)", 14, IMPL_STROKE)
-title(60, 76, "Orange = remaining R1-R4 work (standalone BeliefAgent loop R1, JSON logging R4, Ink HITL+LogView R2/R4)", 14, FUT_STROKE)
+title(60, 56, "Gray = current VulnBot modules   |   Blue = implemented this fork (Docker lab / POMDP belief 2.1-2.5 / octopus CLI / R1-R4 TL-0 contracts + Executor R3 TL-1 + BeliefAgent loop R1 TL-2)", 14, IMPL_STROKE)
+title(60, 76, "Orange = remaining R1-R4 work (JSON logging R4 TL-3, Ink HITL+LogView R2/R4 TL-4/5)", 14, FUT_STROKE)
 
 # ---- current nodes ----
 node("user",     60,  120, W, H, "User / Session\n(init_description,\ntarget IP)")
@@ -143,8 +143,8 @@ node("priors", 340, 640, W, H, "priors.py [2.5]\nCVSS+maturity -> R\nvalue/cost/
 node("bcp", 620, 120, W, H, "Belief-Cond. Planner [2.4]\nchoose_action: info-gain\nvs exploit-value (pi)", scaffold=True)
 # Octopus CLI front-end (Phase 4.1a): setup wizard, /model swap, belief view.
 node("cli", 60, 640, W, H, "octopus CLI (Ink) [4.1a]\nsetup, /model, belief view\n(cli/)", scaffold=True)
-# Remaining future work: the standalone belief-agent control loop (R1, TL-2).
-node("runagent", 900, 120, W, H, "run_agent -> BeliefAgent\nstandalone POMDP loop\n(pomdp/agent.py) [R1 TL-2]", future=True)
+# The standalone belief-agent control loop (R1, TL-2) — now implemented.
+node("runagent", 900, 120, W, H, "run_agent -> BeliefAgent [R1 TL-2]\nstandalone POMDP loop\nchoose/exec/observe/update (pomdp/agent.py)", scaffold=True)
 
 # ---- R1-R4 hardening: TL-0 shared contracts (blue, done) ----
 node("obs",     900, 470, W, H, "observation.py [TL-0]\nunified Observation O\n(R3+R4 schema)", scaffold=True)
@@ -194,8 +194,11 @@ arrow("events", "r", "control", "l", dashed=True, color=IMPL_STROKE)
 arrow("executor", "t", "exec", "b", dashed=True, color=IMPL_STROKE, label="run(action)->O")
 arrow("obs", "r", "executor", "l", dashed=True, color=IMPL_STROKE, label="normalizes")
 
+# ---- BeliefAgent loop wiring (R1 TL-2, blue: done) ----
+arrow("runagent", "b", "roles", "t", dashed=True, color=IMPL_STROKE, label="drives loop")
+arrow("runagent", "b", "executor", "t", dashed=True, color=IMPL_STROKE, label="run(action)")
+
 # ---- R1-R4 remaining lanes (dashed orange) ----
-arrow("runagent", "b", "roles", "t", dashed=True, color=FUT_STROKE, label="drives loop")
 arrow("logview", "t", "events", "r", dashed=True, color=FUT_STROKE, label="renders")
 
 doc = {

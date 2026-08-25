@@ -222,13 +222,17 @@ export default function Repl({
   }
 
   // ── real pentest run: spawn the Python pipeline + stream its output into the transcript ──
-  async function startRun(description: string): Promise<void> {
+  async function startRun(rawDescription: string): Promise<void> {
     if (runRef.current) {
       pushLines(['a run is already active — Ctrl+C to stop it first.']);
       return;
     }
+    // `--agent` anywhere in the args selects the R1 belief-first BeliefAgent loop; strip it from
+    // the description passed to the pipeline (default: the legacy 3-phase run).
+    const agent = /(^|\s)--agent(\s|$)/.test(rawDescription);
+    const description = rawDescription.replace(/(^|\s)--agent(\s|$)/g, ' ').trim();
     if (!description) {
-      pushLines(['no target/description — usage: /run <target-ip | task>']);
+      pushLines(['no target/description — usage: /run [--agent] <target-ip | task>']);
       return;
     }
     // Preflight MySQL: docker mode auto-starts + inits it; local mode reports and bails. This is
@@ -266,9 +270,10 @@ export default function Repl({
         if (cl) push({ kind: 'log', line: cl });
       }
     };
+    if (agent) pushLines(['belief-agent mode (--agent): standalone POMDP loop.']);
     runRef.current = runPentest(
       description,
-      5, // max react steps per phase
+      5, // max react steps per phase (or belief-loop step cap in --agent mode)
       feed,
       (code) => {
         const fin = runStateRef.current;
@@ -295,6 +300,7 @@ export default function Repl({
         }
         pushLines(out);
       },
+      agent,
     );
   }
 

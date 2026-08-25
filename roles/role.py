@@ -157,7 +157,7 @@ class Role(BaseModel):
         """Belief Updater hook: run the observation O through the soft Bayesian update."""
         try:
             from pomdp.belief_store import BeliefStore
-            from pomdp.belief_state import update_belief
+            from pomdp.belief_state import update_belief, z_samples
             run_id = self._belief_run_id()
             if not run_id:
                 return
@@ -166,7 +166,8 @@ class Role(BaseModel):
             if b is None:
                 return
             action = self._task_to_action()
-            b = update_belief(b, action, observation, llm=self._belief_llm, samples=1)
+            # self-consistency: average Z over VULNBOT_Z_SAMPLES calls (TL-2.3), shared with BeliefAgent.
+            b = update_belief(b, action, observation, llm=self._belief_llm, samples=z_samples())
             store.save(b)
             self._emit_belief(b)  # surface the updated posterior in the CLI as friendly bars
             logger.info(f"belief updated -> step {b.get('step')}")

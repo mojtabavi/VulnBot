@@ -39,6 +39,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import os
 import re
 from dataclasses import dataclass, field, asdict
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -47,10 +48,24 @@ __all__ = [
     "GAMMA", "OS_CLASSES", "ACCESS_LEVELS", "ActionType", "Action",
     "new_host_prior", "new_belief", "add_host",
     "Z_PROMPT_TEMPLATE", "update_belief", "score_action", "choose_action", "run_agent",
+    "z_samples",
 ]
 
 # Discount factor γ for the (belief) MDP. Conventional default; author may tune.
 GAMMA: float = 0.95
+
+
+def z_samples(default: int = 1) -> int:
+    """Self-consistency Z-sample count from the env (`VULNBOT_Z_SAMPLES`), clamped to ≥ 1.
+
+    The ONE source of truth for how many LLM samples the Updater averages per belief update
+    (TL-2.3), so the standalone `BeliefAgent` loop and the legacy Role updater agree. `samples>1`
+    averages Z across calls to reduce estimator variance (self-consistency); default 1 = one call.
+    """
+    try:
+        return max(1, int(os.environ.get("VULNBOT_Z_SAMPLES", str(default))))
+    except (TypeError, ValueError):
+        return max(1, int(default))
 
 # Likelihood floor: keeps the update SOFT — a failed observation moves mass but never
 # collapses a hypothesis to 0 (e.g. a failed exploit 0.70 -> ~0.50, not -> 0).
@@ -418,10 +433,16 @@ def choose_action(candidates: Sequence[Action], belief: Dict[str, Any]) -> Actio
 
 
 def run_agent(*args: Any, **kwargs: Any) -> Any:
-    """Top-level belief-agent orchestration entry point (author-defined).
+    """Top-level belief-agent orchestration entry point (R1, TL-2.2 delegator).
 
-    Intended to loop: choose_action(belief) → execute in kali → observe O →
-    update_belief(belief, action, O) → persist → repeat. Wired to the VulnBot
-    Role loop / lab in later tasks.
+    The belief loop lives in `pomdp/agent.py::BeliefAgent` (choose_action → executor.run →
+    update_belief → belief_store.save). This function is a thin delegator so the historical
+    entry point `belief_state.run_agent(...)` stays valid while the belief MATH in this module
+    is untouched. The import is LAZY (inside the function) because `pomdp.agent` imports the
+    names in this module — importing it at module load would be a circular import.
+
+    Signature mirrors `pomdp.agent.run_agent(executor, belief_llm, session_id, **kwargs)`:
+    the loop-vs-construction kwargs are split there. Returns the final belief.
     """
-    raise NotImplementedError("run_agent: implement the belief-agent control loop.")
+    from pomdp.agent import run_agent as _run  # lazy: breaks the pomdp.agent ↔ belief_state cycle
+    return _run(*args, **kwargs)
