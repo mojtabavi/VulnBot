@@ -8,7 +8,17 @@ R2 interactive Ink CLI (HITL), R3 multi-channel executor, R4 JSON logging + Ink 
 
 ## [Unreleased] — R1–R4 interactive-POMDP hardening
 
+### Changed
+- **Docs synced for R1–R4 completion (TL-6.2 → R1–R4 COMPLETE).** README schematic caption lists every
+  R1–R4 module blue; ARCHITECTURE §1.1 gained the TL-3/4/5 + E2E write-up; CLAUDE.md (local) marks all
+  modules done + refreshes the test note; schematic/graphify refreshed. **The R1–R4 hardening pass is
+  complete** — only the live-lab manual verification remains.
+
 ### Added
+- **`tests/test_e2e.py` — end-to-end R1–R4 integration (TL-6.1).** Real BeliefAgent + Executor + EventLog +
+  ControlServer/Client over an actual loopback socket (Kali tool + LLM faked): HITL approve round-trips,
+  events.jsonl + manifest written, failed exploit softens the belief. Full suite 71 pass. Live-lab run is a
+  user manual check.
 - **LogView selftest coverage + pure `summarizeEvent` (R4, TL-5.4 → TL-5 COMPLETE).** Moved the per-type
   render mapping into `logview.ts` (tested without Ink); selftest covers summaries, parse/filter/tail,
   control-frame round-trip, approval command frames, and `/log`. **R4 Ink LogView is done.** typecheck +

@@ -72,7 +72,16 @@ selected by `pentest.py --agent` / octopus `/run --agent` and emits the full R4 
 attached `EventLog`. Self-consistency (`VULNBOT_Z_SAMPLES`) and the T-effect are locked by
 `tests/test_agent.py`; the tuple→code map is `docs/POMDP_INTEGRATION.md`.
 
-Still to come: JSON-logging wired end-to-end (R4, TL-3) and the Ink HITL + LogView (R2/R4, TL-4/5).
+**TL-3/4/5 — done.** JSON logging is wired end-to-end (R4): the `BeliefAgent` and the `Executor` share one
+`EventLog`, so every action/observation/route-decision/belief-update/`llm_likelihoods`(Z + belief
+before/after)/approval is one JSON record in `data/runs/<id>/events.jsonl` (+ a `manifest.json` linking the
+belief trace). R2 HITL runs over the loopback control socket — the octopus CLI (`cli/src/control.ts`)
+connects on the announced port, prompts approve/deny for high-impact actions (`ApprovalPrompt.tsx`), and
+supports p/r/s/q; the Python gate lives in `BeliefAgent` (`_gate`/`_await_decision`/`_poll_control`). R4
+presentation is the Ink `LogView` (`cli/src/logview.ts` tails `events.jsonl`; `LogView.tsx` renders each
+record per type — belief bars, observation summaries, Z-evidence — never raw JSON; opened with `/log`).
+**All R1–R4 modules are implemented**; `tests/test_e2e.py` exercises the whole path over a real socket, and
+a live-lab `/run --agent` is the final manual verification.
 
 ---
 

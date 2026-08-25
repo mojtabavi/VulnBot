@@ -29,11 +29,15 @@ VulnBot is an advanced automated penetration testing framework that utilizes Lar
 ### Architecture (this fork)
 
 Current module layout and data flow. Gray = original VulnBot modules; blue = implemented in this
-fork (belief-state layer `pomdp/`, R1–R4 TL-0 shared contracts, the **R3 multi-channel executor
-`executor/`**, and the **R1 standalone `BeliefAgent` loop `pomdp/agent.py`**); orange = remaining
-future work (JSON logging, Ink HITL/LogView). Full write-up in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) + the executor deep-dive
-[`docs/EXECUTOR.md`](docs/EXECUTOR.md); editable source in
+fork — the belief-state layer `pomdp/`, the **R1 standalone `BeliefAgent` loop `pomdp/agent.py`**, the
+**R3 multi-channel executor `executor/`**, the **R4 JSON event log** (`utils/events.py` +
+`data/runs/<id>/events.jsonl`) with the Ink **LogView** (`cli/src/logview.ts` + `LogView.tsx`, `/log`),
+and the **R2 HITL** loopback control socket (`utils/control.py` + `cli/src/control.ts` +
+`ApprovalPrompt.tsx`). **All R1–R4 modules are implemented**; the only remaining step is a live-lab
+end-to-end run (the code path is covered by `tests/test_e2e.py`). Full write-up in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the executor deep-dive
+[`docs/EXECUTOR.md`](docs/EXECUTOR.md), and the POMDP mapping
+[`docs/POMDP_INTEGRATION.md`](docs/POMDP_INTEGRATION.md); editable source in
 [`project_schematic.excalidraw`](project_schematic.excalidraw).
 
 ![VulnBot current architecture & data flow](docs/project_schematic.png)
